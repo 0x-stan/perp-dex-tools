@@ -513,7 +513,7 @@ class BackpackClient(BaseExchangeClient):
                 break
         return position_amt
 
-    async def get_contract_attributes(self) -> Tuple[str, Decimal]:
+    async def get_contract_attributes(self, exchange_type="PERP") -> Tuple[str, Decimal]:
         """Get contract ID for a ticker."""
         ticker = self.config.ticker
         if len(ticker) == 0:
@@ -522,7 +522,7 @@ class BackpackClient(BaseExchangeClient):
 
         markets = self.public_client.get_markets()
         for market in markets:
-            if (market.get('marketType', '') == 'PERP' and market.get('baseSymbol', '') == ticker and
+            if (market.get('marketType', '') == exchange_type and market.get('baseSymbol', '') == ticker and
                     market.get('quoteSymbol', '') == 'USDC'):
                 self.config.contract_id = market.get('symbol', '')
                 min_quantity = Decimal(market.get('filters', {}).get('quantity', {}).get('minQuantity', 0))
@@ -542,3 +542,34 @@ class BackpackClient(BaseExchangeClient):
             raise ValueError("Failed to get tick size for ticker")
 
         return self.config.contract_id, self.config.tick_size
+
+    @query_retry(default_return=0)
+    async def get_balance(self) -> Decimal:
+        """Get spot balance for a specific asset."""
+        ticker = self.config.ticker
+        if len(ticker) == 0:
+            self.logger.log("Ticker is empty", "ERROR")
+            raise ValueError("Ticker is empty")
+
+        balances_data = self.account_client.get_balances()
+        quote_balance = {
+            'available': Decimal(balances_data['USDC']['available']),
+            'locked': Decimal(balances_data['USDC']['locked']),
+        }
+        quote_balance['total'] = quote_balance['available'] + quote_balance['locked']
+        base_balance = {
+            'available': Decimal(0),
+            'locked': Decimal(0),
+            'total': Decimal(0),
+        }
+        if ticker in balances_data:
+            base_balance['available'] = Decimal(balances_data[ticker]['available'])
+            base_balance['locked'] = Decimal(balances_data[ticker]['locked'])
+            balances_data['total'] = base_balance['available'] + base_balance['locked']
+
+                
+        return {
+            'quote': quote_balance,
+            'base': base_balance,
+        }
+
