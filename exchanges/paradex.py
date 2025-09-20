@@ -4,12 +4,9 @@ Simplified Paradex exchange client implementation - L2 credentials only.
 
 import os
 import asyncio
-import json
 import time
-import traceback
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any, List, Optional, Tuple
-from starknet_py.common import int_from_hex
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
 from .base import BaseExchangeClient, OrderResult, OrderInfo
@@ -20,7 +17,7 @@ def patch_paradex_http_client():
     """Patch Paradex SDK HttpClient to suppress unwanted print statements."""
     try:
         from paradex_py.api.http_client import HttpClient
-        
+
         def patched_request(self, url, http_method, params=None, payload=None, headers=None):
             res = self.client.request(
                 method=http_method.value,
@@ -40,10 +37,10 @@ def patch_paradex_http_client():
                 # This is expected for DELETE requests that don't return JSON
                 # The original code would print: f"HttpClient: No response request({url}, {http_method.value})"
                 pass
-        
+
         # Replace the request method
         HttpClient.request = patched_request
-        
+
     except ImportError:
         # Paradex SDK not available, skip patching
         pass
@@ -60,13 +57,13 @@ class ParadexClient(BaseExchangeClient):
         from paradex_py.common.order import Order, OrderType, OrderSide, OrderStatus
         from paradex_py.api.ws_client import ParadexWebsocketChannel
         # from paradex_py.common.console_logging import console_logger  # Disabled to turn off native logging
-        
+
         # Apply the patch when this class is instantiated
         patch_paradex_http_client()
-        
+
         # Set config first
         self.config = config
-        
+
         # Paradex credentials from environment - L1 address + L2 private key
         self.l1_address = os.getenv('PARADEX_L1_ADDRESS')
         self.l2_private_key_hex = os.getenv('PARADEX_L2_PRIVATE_KEY')
@@ -79,7 +76,7 @@ class ParadexClient(BaseExchangeClient):
                 "PARADEX_L1_ADDRESS must be set in environment variables.\n"
                 "This is your Ethereum L1 address."
             )
-        
+
         if not self.l2_private_key_hex:
             raise ValueError(
                 "PARADEX_L2_PRIVATE_KEY must be set in environment variables.\n"
@@ -88,6 +85,7 @@ class ParadexClient(BaseExchangeClient):
 
         # Convert L2 private key from hex to int
         try:
+            from starknet_py.common import int_from_hex
             self.l2_private_key = int_from_hex(self.l2_private_key_hex)
         except Exception as e:
             raise ValueError(f"Invalid L2 private key format: {e}")
@@ -107,20 +105,20 @@ class ParadexClient(BaseExchangeClient):
         self._initialize_paradex_client()
 
         self._order_update_handler = None
-        self.order_size_increment=''
+        self.order_size_increment = ''
 
     def _initialize_paradex_client(self) -> None:
         """Initialize the Paradex client with L2 credentials only."""
         try:
             # Import paradex_py modules locally
             from paradex_py import Paradex
-            
+
             # Initialize Paradex client without credentials first
             self.paradex = Paradex(
                 env=self.env,
                 logger=None  # Disabled native logging
             )
-            
+
             # Initialize account with L2 private key
             self.paradex.init_account(
                 l1_address=self.l1_address,
@@ -150,7 +148,7 @@ class ParadexClient(BaseExchangeClient):
         # Wait a moment for connection to establish
         await asyncio.sleep(2)
         self._ws_connected = True
-        
+
         # Setup WebSocket subscription for order updates if handler is set
         await self._setup_websocket_subscription()
 
@@ -174,7 +172,7 @@ class ParadexClient(BaseExchangeClient):
         async def order_update_handler(ws_channel, message):
             """Handle order updates from WebSocket."""
             from paradex_py.api.ws_client import ParadexWebsocketChannel
-            
+
             params = message.get("params", {})
             data = params.get("data", {})
 
@@ -242,7 +240,7 @@ class ParadexClient(BaseExchangeClient):
 
         # Subscribe to orders channel for the specific market
         from paradex_py.api.ws_client import ParadexWebsocketChannel
-        
+
         contract_id = self.config.contract_id
         try:
             await self.paradex.ws_client.subscribe(
@@ -253,7 +251,6 @@ class ParadexClient(BaseExchangeClient):
             self.logger.log(f"Subscribed to order updates for {contract_id}", "INFO")
         except Exception as e:
             self.logger.log(f"Failed to subscribe to order updates: {e}", "ERROR")
-
 
     @retry(
         stop=stop_after_attempt(5),
@@ -281,7 +278,7 @@ class ParadexClient(BaseExchangeClient):
         if best_bid <= 0 or best_ask <= 0:
             self.logger.log("Invalid bid/ask prices", "ERROR")
             raise ValueError("Invalid bid/ask prices")
-    
+
         return best_bid, best_ask
 
     @retry(
@@ -301,7 +298,6 @@ class ParadexClient(BaseExchangeClient):
             return OrderResult(success=False, error_message='No order ID in response')
         return order_result
 
-
     async def place_post_only_order(self, contract_id: str, quantity: Decimal, price: Decimal,
                                     side: str) -> OrderResult:
         """Place a post only order with Paradex using official SDK."""
@@ -316,7 +312,7 @@ class ParadexClient(BaseExchangeClient):
             limit_price=price,
             instruction="POST_ONLY"
         )
-        
+
         order_result = self._submit_order_with_retry(order)
 
         order_id = order_result.get('id')
@@ -355,10 +351,10 @@ class ParadexClient(BaseExchangeClient):
 
             # Get current market prices
             best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
-            
+
             # Determine order side and price
             from paradex_py.common.order import OrderSide
-            
+
             if direction == 'buy':
                 # For buy orders, place slightly below best ask to ensure execution
                 order_price = best_ask - self.config.tick_size
@@ -369,7 +365,7 @@ class ParadexClient(BaseExchangeClient):
                 order_side = OrderSide.Sell
             else:
                 raise Exception(f"[OPEN] Invalid direction: {direction}")
-        
+
             order_price = self.round_to_tick(order_price)
             order_result = await self.place_post_only_order(contract_id, quantity, order_price, order_side)
             order_status = order_result.status
@@ -397,9 +393,17 @@ class ParadexClient(BaseExchangeClient):
                 price=order_price,
                 status=order_status
             )
+        elif order_status == 'CLOSED' and remaining_size == 0:
+            return OrderResult(
+                success=True,
+                order_id=order_id,
+                side=direction,
+                size=quantity,
+                price=order_price,
+                status=order_status
+            )
         else:
             raise Exception(f"[OPEN] [{order_id}] Unexpected order status: {order_status}")
-
 
     async def _get_active_close_orders(self, contract_id: str) -> int:
         """Get active close orders for a contract using official SDK."""
@@ -409,7 +413,6 @@ class ParadexClient(BaseExchangeClient):
             if order.side == self.config.close_order_side:
                 active_close_orders += 1
         return active_close_orders
-
 
     async def place_close_order(self, contract_id: str, quantity: Decimal, price: Decimal, side: str) -> OrderResult:
         """Place a close order with Paradex using official SDK."""
@@ -516,7 +519,7 @@ class ParadexClient(BaseExchangeClient):
         if not orders_response or 'results' not in orders_response:
             self.logger.log("Failed to get orders", "ERROR")
             raise ValueError("Failed to get orders")
-        
+
         return orders_response['results']
 
     async def get_active_orders(self, contract_id: str) -> List[OrderInfo]:
@@ -529,7 +532,7 @@ class ParadexClient(BaseExchangeClient):
             contract_orders.append(OrderInfo(
                 order_id=order.get('id', ''),
                 side=order.get('side', '').lower(),
-                size=Decimal(order.get('remaining_size', 0)), #FIXME: This is wrong. Should be size
+                size=Decimal(order.get('remaining_size', 0)),  # FIXME: This is wrong. Should be size
                 price=Decimal(order.get('price', 0)),
                 status=order.get('status', ''),
                 filled_size=Decimal(order.get('size', 0)) - Decimal(order.get('remaining_size', 0)),
@@ -586,9 +589,9 @@ class ParadexClient(BaseExchangeClient):
         if not market_response['results']:
             self.logger.log("Failed to get markets list", "ERROR")
             raise ValueError("Failed to get markets list")
-        
+
         market = market_response['results'][0]
-        
+
         return market
 
     @retry(
@@ -617,7 +620,7 @@ class ParadexClient(BaseExchangeClient):
 
         market = await self._fetch_market_with_retry(symbol)
         market_summary = await self._fetch_markets_summary_with_retry(symbol)
-        
+
         last_price = Decimal(market_summary.get('mark_price', 0))
 
         # Set contract_id to market name (Paradex uses market names as identifiers)

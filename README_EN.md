@@ -1,7 +1,7 @@
 ##### Follow Me - **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
 ## Multi-Exchange Trading Bot
 
-A modular trading bot that supports multiple exchanges including EdgeX and Backpack. The bot implements an automated strategy that places orders and automatically closes them at a profit.
+A modular trading bot that supports multiple exchanges including EdgeX, Backpack, and Paradex. The bot implements an automated strategy that places orders and automatically closes them at a profit.
 
 ## Referral Links (Enjoy fee rebates and benefits)
 
@@ -43,19 +43,44 @@ You will get 10% taker fee discount rebates and potential future benefits
    ```
 
 4. **Set up environment variables**:
-   Use the env_example.txt to create a `.env` file in the project root.
+   Create a `.env` file in the project root directory and use env_example.txt as a template to modify with your API keys.
 
 ## Strategy Overview
 
-### How the Bot Works
+**Important Notice**: Everyone must first understand the logic and risks of this script so you can set parameters that are more suitable for yourself, or you might think this is not a good strategy and don't want to use it at all. As I mentioned on Twitter, I didn't write these scripts for sharing purposes, but because I'm actually using this script myself, so I wrote it, and then shared it.
+This script mainly focuses on long-term wear and tear. As long as the script continues to place orders, if the price reaches your highest trapped point after a month, then all your trading volume for that month will be zero-wear. Therefore, I believe that setting `--quantity` and `--wait-time` too small is not a good long-term strategy, but it is indeed suitable for short-term high-intensity volume trading. I usually use quantity between 40-60 and wait-time between 450-650 to ensure that even if the market goes against your judgment, the script can still place orders continuously and stably until the price returns to your entry point, achieving zero-wear volume trading.
 
-This trading bot specifically designed for perpetual contracts. Here's a detailed explanation of the strategy:
+The bot implements a simple trading strategy:
 
-#### 🎯 Core Strategy
-1. **Auto Order Placement**: The bot automatically places limit orders near the current market price
-2. **Wait for Fill**: Monitors order status and waits for orders to be filled by the market
-3. **Auto Close**: Once filled, immediately places a close order at the preset take-profit price
-4. **Loop Execution**: Repeats the process continuously for ongoing trading
+1. **Order Placement**: Places limit orders near the current market price
+2. **Order Monitoring**: Waits for orders to be filled
+3. **Close Order**: Automatically places close orders at the take-profit level
+4. **Position Management**: Monitors positions and active orders
+5. **Risk Management**: Limits maximum number of concurrent orders
+6. **Grid Step Control**: Controls minimum price distance between new orders and existing close orders via `--grid-step` parameter
+7. **Stop Trading Control**: Controls the price conditions for stopping transactions through the `--stop-price` parameter
+
+#### ⚙️ Key Parameters
+- **quantity**: Trading amount per order
+- **take-profit**: Take-profit percentage (e.g., 0.02 means 0.02%)
+- **max-orders**: Maximum concurrent active orders (risk control)
+- **wait-time**: Wait time between orders (prevents overtrading)
+- **grid-step**: Grid step control (prevents close orders from being too dense)
+- **stop-price**: When `direction` is 'buy', exit when price >= stop-price; 'sell' logic is opposite (default: -1, no price-based termination)
+- **pause-price**: When `direction` is 'buy', pause when price >= pause-price; 'sell' logic is opposite (default: -1, no price-based pausing)
+
+#### Grid Step Feature
+
+The `--grid-step` parameter controls the minimum distance between new order close prices and existing close order prices:
+
+- **Default -100**: No grid step restriction, executes original strategy
+- **Positive value (e.g., 0.5)**: New order close price must maintain at least 0.5% distance from the nearest close order price
+- **Purpose**: Prevents close orders from being too dense, improving fill probability and risk management
+
+For example, when Long and `--grid-step 0.5`:
+- If existing close order price is 2000 USDT
+- New order close price must be lower than 1990 USDT (2000 × (1 - 0.5%))
+- This prevents close orders from being too close together, improving overall strategy effectiveness
 
 #### 📊 Trading Flow Example
 Assuming current ETH price is $2000 with take-profit set to 0.02%:
@@ -66,24 +91,12 @@ Assuming current ETH price is $2000 with take-profit set to 0.02%:
 4. **Complete**: Close order gets filled, earning 0.02% profit
 5. **Repeat**: Continues to the next trading cycle
 
-#### ⚙️ Key Parameters
-- **quantity**: Trading amount per order
-- **take-profit**: Take-profit percentage (e.g., 0.02 means 0.02%)
-- **max-orders**: Maximum concurrent active orders (risk control)
-- **wait-time**: Wait time between orders (prevents overtrading)
-- **grid-step**: Grid step control (prevents close orders from being too dense)
-
 #### 🛡️ Risk Management
 - **Order Limits**: Limits maximum concurrent orders via `max-orders`
 - **Grid Control**: Ensures reasonable spacing between close orders via `grid-step`
-- **Timeout Handling**: Automatically cancels orders that remain unfilled too long
+- **Order Frequency Control**: Controls order timing via `wait-time` to prevent being trapped in short periods
 - **Real-time Monitoring**: Continuously monitors positions and order status
 - **⚠️ No Stop Loss**: This strategy does not include stop-loss functionality and may face significant losses in adverse market conditions
-
-#### 💡 Best Use Cases
-- **Sideways Markets**: Profiting from price oscillations within a range
-- **Low Volatility**: Accumulating volumes and profits through frequent small trades
-- **Automated Trading**: 24/7 trading without manual intervention
 
 ## Sample commands:
 
@@ -99,6 +112,13 @@ ETH (with grid step control):
 
 ```bash
 python runbot.py --exchange edgex --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --grid-step 0.5
+```
+
+
+ETH (with stop price control):
+
+```bash
+python runbot.py --exchange edgex --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --stop-price 5500
 ```
 
 BTC:
@@ -125,6 +145,9 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 
 ### Environment Variables
 
+#### General Configuration
+- `ACCOUNT_NAME`: The name of the current account in the environment variable, used for distinguishing between multiple account logs, customizable, not mandatory
+
 #### EdgeX Configuration
 
 - `EDGEX_ACCOUNT_ID`: Your EdgeX account ID
@@ -139,8 +162,8 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 
 #### Paradex Configuration
 
-- `PARADEX_L1_ADDRESS`: Your L1 wallet address
-- `PARADEX_L2_PRIVATE_KEY`: Your Paradex L2 private key
+- `PARADEX_L1_ADDRESS`: L1 wallet address
+- `PARADEX_L2_PRIVATE_KEY`: L2 wallet private key (click avatar, wallet, "copy paradex private key")
 
 ### Command Line Arguments
 
@@ -149,36 +172,13 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 - `--quantity`: Order quantity (default: 0.1)
 - `--take-profit`: Take profit percent (e.g., 0.02 means 0.02%)
 - `--direction`: Trading direction: 'buy' or 'sell' (default: buy)
+- `--env-file`: Account configuration file (default: .env)
 - `--max-orders`: Maximum number of active orders (default: 40)
 - `--wait-time`: Wait time between orders in seconds (default: 450)
 - `--grid-step`: Minimum distance in percentage to the next close order price (default: -100, means no restriction)
+- `--stop-price`: For BUY direction: exit when price >= stop-price. For SELL direction: exit when price <= stop-price. (Default: -1, no price-based termination)
+- `--pause-price`: For BUY direction: pause when price >= pause-price. For SELL direction: pause when price <= pause-price. (Default: -1, no price-based pausing)
 
-## Trading Strategy
-
-**Important Notice**: Everyone must first understand the logic and risks of this script so you can set parameters that are more suitable for yourself, or you might think this is not a good strategy and don't want to use it at all. As I mentioned on Twitter, I didn't write these scripts for sharing purposes, but because I'm actually using this script myself, so I wrote it, and then shared it.
-This script mainly focuses on long-term wear and tear. As long as the script continues to place orders, if the price reaches your highest trapped point after a month, then all your trading volume for that month will be zero-wear. Therefore, I believe that setting `--quantity` and `--wait-time` too small is not a good long-term strategy, but it is indeed suitable for short-term high-intensity volume trading. I usually use quantity between 40-60 and wait-time between 450-650 to ensure that even if the market goes against your judgment, the script can still place orders continuously and stably until the price returns to your entry point, achieving zero-wear volume trading.
-
-The bot implements a simple strategy:
-
-1. **Order Placement**: Places a limit order slightly above/below market price
-2. **Order Monitoring**: Waits for the order to be filled
-3. **Close Order**: Automatically places a close order at the take profit level
-4. **Position Management**: Monitors positions and active orders
-5. **Risk Management**: Limits maximum number of concurrent orders
-6. **Grid Step Control**: Controls minimum price distance between new orders and existing close orders via `--grid-step` parameter
-
-### Grid Step Feature
-
-The `--grid-step` parameter controls the minimum distance between new order close prices and existing close order prices:
-
-- **Default -100**: No grid step restriction, executes original strategy
-- **Positive value (e.g., 0.5)**: New order close price must maintain at least 0.5% distance from the nearest close order price
-- **Purpose**: Prevents close orders from being too dense, improving fill probability and risk management
-
-For example, when Long and `--grid-step 0.5`:
-- If existing close order price is 2000 USDT
-- New order close price must be lower than 1990 USDT (2000 × (1 - 0.5%))
-- This prevents close orders from being too close together, improving overall strategy effectiveness
 
 ## Logging
 
@@ -188,6 +188,19 @@ The bot provides comprehensive logging:
 - **Debug Logs**: Detailed activity logs with timestamps
 - **Console Output**: Real-time status updates
 - **Error Handling**: Comprehensive error logging and handling
+
+## Q & A
+
+### How to configure multiple accounts for the same exchange on the same device?
+1. Create a .env file for each account, such as account_1.env, account_2.env
+2. Configure the keys for each account in each file
+3. Use different `--env-file` parameters in the command line to start different accounts, such as `python runbot.py --env-file account_1.env [other parameters...]`
+
+### How to configure multiple accounts for different exchanges on the same device?
+Configure all different exchange accounts in the same `.env` file, then use different `--exchange` parameters in the command line to start different exchanges, such as `python runbot.py --exchange backpack [other parameters...]`
+
+### How to configure multiple contracts for the same account and exchange on the same device?
+Configure the account in the `.env` file, then use different `--ticker` parameters in the command line to start different contracts, such as `python runbot.py --ticker ETH [other parameters...]`
 
 ## Contributing
 
