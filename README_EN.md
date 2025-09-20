@@ -1,20 +1,18 @@
-# Multi-Exchange Trading Bot
+##### Follow Me - **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
+## Multi-Exchange Trading Bot
 
-A modular trading bot that supports multiple exchanges including EdgeX and Backpack. The bot implements an automated strategy that places orders and automatically closes them at a profit.
-
-## Follow Me
-
-- **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
+A modular trading bot that supports multiple exchanges including EdgeX, Backpack, and Paradex. The bot implements an automated strategy that places orders and automatically closes them at a profit.
 
 ## Referral Links (Enjoy fee rebates and benefits)
 
-### EdgeX: [https://pro.edgex.exchange/referral/QUANT](https://pro.edgex.exchange/referral/QUANT)
-- Instant VIP 1 Trading Fees
-- 10% Fee Rebate
-- 10% Bonus Points
+#### EdgeX: [https://pro.edgex.exchange/referral/QUANT](https://pro.edgex.exchange/referral/QUANT)
+Instant VIP 1 Trading Fees; 10% Fee Rebate; 10% Bonus Points
 
-### Backpack Exchange: [https://backpack.exchange/join/quant](https://backpack.exchange/join/quant)
-By using my Backpack referral, you will get 30% fee rebates on all your trading fees
+#### Backpack Exchange: [https://backpack.exchange/join/quant](https://backpack.exchange/join/quant)
+You will get 30% fee rebates on all your trading fees
+
+#### Paradex Exchange: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
+You will get 10% taker fee discount rebates and potential future benefits
 
 ## Installation
 
@@ -38,8 +36,67 @@ By using my Backpack referral, you will get 30% fee rebates on all your trading 
    pip install -r requirements.txt
    ```
 
+   **Paradex Users**: If you want to use Paradex exchange, you need to install additional Paradex-specific dependencies:
+
+   ```bash
+   pip install -r para_requirements.txt
+   ```
+
 4. **Set up environment variables**:
-   Use the env_example.txt to create a `.env` file in the project root.
+   Create a `.env` file in the project root directory and use env_example.txt as a template to modify with your API keys.
+
+## Strategy Overview
+
+**Important Notice**: Everyone must first understand the logic and risks of this script so you can set parameters that are more suitable for yourself, or you might think this is not a good strategy and don't want to use it at all. As I mentioned on Twitter, I didn't write these scripts for sharing purposes, but because I'm actually using this script myself, so I wrote it, and then shared it.
+This script mainly focuses on long-term wear and tear. As long as the script continues to place orders, if the price reaches your highest trapped point after a month, then all your trading volume for that month will be zero-wear. Therefore, I believe that setting `--quantity` and `--wait-time` too small is not a good long-term strategy, but it is indeed suitable for short-term high-intensity volume trading. I usually use quantity between 40-60 and wait-time between 450-650 to ensure that even if the market goes against your judgment, the script can still place orders continuously and stably until the price returns to your entry point, achieving zero-wear volume trading.
+
+The bot implements a simple trading strategy:
+
+1. **Order Placement**: Places limit orders near the current market price
+2. **Order Monitoring**: Waits for orders to be filled
+3. **Close Order**: Automatically places close orders at the take-profit level
+4. **Position Management**: Monitors positions and active orders
+5. **Risk Management**: Limits maximum number of concurrent orders
+6. **Grid Step Control**: Controls minimum price distance between new orders and existing close orders via `--grid-step` parameter
+7. **Stop Trading Control**: Controls the price conditions for stopping transactions through the `--stop-price` parameter
+
+#### ⚙️ Key Parameters
+- **quantity**: Trading amount per order
+- **take-profit**: Take-profit percentage (e.g., 0.02 means 0.02%)
+- **max-orders**: Maximum concurrent active orders (risk control)
+- **wait-time**: Wait time between orders (prevents overtrading)
+- **grid-step**: Grid step control (prevents close orders from being too dense)
+- **stop-price**: When `direction` is 'buy', exit when price >= stop-price; 'sell' logic is opposite (default: -1, no price-based termination)
+- **pause-price**: When `direction` is 'buy', pause when price >= pause-price; 'sell' logic is opposite (default: -1, no price-based pausing)
+
+#### Grid Step Feature
+
+The `--grid-step` parameter controls the minimum distance between new order close prices and existing close order prices:
+
+- **Default -100**: No grid step restriction, executes original strategy
+- **Positive value (e.g., 0.5)**: New order close price must maintain at least 0.5% distance from the nearest close order price
+- **Purpose**: Prevents close orders from being too dense, improving fill probability and risk management
+
+For example, when Long and `--grid-step 0.5`:
+- If existing close order price is 2000 USDT
+- New order close price must be lower than 1990 USDT (2000 × (1 - 0.5%))
+- This prevents close orders from being too close together, improving overall strategy effectiveness
+
+#### 📊 Trading Flow Example
+Assuming current ETH price is $2000 with take-profit set to 0.02%:
+
+1. **Open Position**: Places buy order at $2000.40 (slightly above market price)
+2. **Fill**: Order gets filled by the market, acquiring long position
+3. **Close Position**: Immediately places sell order at $2000.80 (take-profit price)
+4. **Complete**: Close order gets filled, earning 0.02% profit
+5. **Repeat**: Continues to the next trading cycle
+
+#### 🛡️ Risk Management
+- **Order Limits**: Limits maximum concurrent orders via `max-orders`
+- **Grid Control**: Ensures reasonable spacing between close orders via `grid-step`
+- **Order Frequency Control**: Controls order timing via `wait-time` to prevent being trapped in short periods
+- **Real-time Monitoring**: Continuously monitors positions and order status
+- **⚠️ No Stop Loss**: This strategy does not include stop-loss functionality and may face significant losses in adverse market conditions
 
 ## Sample commands:
 
@@ -55,6 +112,13 @@ ETH (with grid step control):
 
 ```bash
 python runbot.py --exchange edgex --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --grid-step 0.5
+```
+
+
+ETH (with stop price control):
+
+```bash
+python runbot.py --exchange edgex --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --stop-price 5500
 ```
 
 BTC:
@@ -81,6 +145,9 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 
 ### Environment Variables
 
+#### General Configuration
+- `ACCOUNT_NAME`: The name of the current account in the environment variable, used for distinguishing between multiple account logs, customizable, not mandatory
+
 #### EdgeX Configuration
 
 - `EDGEX_ACCOUNT_ID`: Your EdgeX account ID
@@ -90,87 +157,28 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 
 #### Backpack Configuration
 
-- `BACKPACK_PUBLIC_KEY`: Your Backpack public key
-- `BACKPACK_SECRET_KEY`: Your Backpack secret key (base64 encoded)
+- `BACKPACK_PUBLIC_KEY`: Your Backpack API key
+- `BACKPACK_SECRET_KEY`: Your Backpack API Secret
+
+#### Paradex Configuration
+
+- `PARADEX_L1_ADDRESS`: L1 wallet address
+- `PARADEX_L2_PRIVATE_KEY`: L2 wallet private key (click avatar, wallet, "copy paradex private key")
 
 ### Command Line Arguments
 
-- `--exchange`: Exchange to use: 'edgex' or 'backpack' (default: edgex)
+- `--exchange`: Exchange to use: 'edgex', 'backpack', or 'paradex' (default: edgex)
 - `--ticker`: Base asset symbol (e.g., ETH, BTC, SOL). Contract ID is auto-resolved.
 - `--quantity`: Order quantity (default: 0.1)
 - `--take-profit`: Take profit percent (e.g., 0.02 means 0.02%)
 - `--direction`: Trading direction: 'buy' or 'sell' (default: buy)
+- `--env-file`: Account configuration file (default: .env)
 - `--max-orders`: Maximum number of active orders (default: 40)
 - `--wait-time`: Wait time between orders in seconds (default: 450)
 - `--grid-step`: Minimum distance in percentage to the next close order price (default: -100, means no restriction)
+- `--stop-price`: For BUY direction: exit when price >= stop-price. For SELL direction: exit when price <= stop-price. (Default: -1, no price-based termination)
+- `--pause-price`: For BUY direction: pause when price >= pause-price. For SELL direction: pause when price <= pause-price. (Default: -1, no price-based pausing)
 
-## Trading Strategy
-
-The bot implements a simple scalping strategy:
-
-1. **Order Placement**: Places a limit order slightly above/below market price
-2. **Order Monitoring**: Waits for the order to be filled
-3. **Close Order**: Automatically places a close order at the take profit level
-4. **Position Management**: Monitors positions and active orders
-5. **Risk Management**: Limits maximum number of concurrent orders
-6. **Grid Step Control**: Controls minimum price distance between new orders and existing close orders via `--grid-step` parameter
-
-### Grid Step Feature
-
-The `--grid-step` parameter controls the minimum distance between new order close prices and existing close order prices:
-
-- **Default -100**: No grid step restriction, executes original strategy
-- **Positive value (e.g., 0.5)**: New order close price must maintain at least 0.5% distance from the nearest close order price
-- **Purpose**: Prevents close orders from being too dense, improving fill probability and risk management
-
-For example, when Long and `--grid-step 0.5`:
-- If existing close order price is 2000 USDT
-- New order close price must be lower than 1990 USDT (2000 × (1 - 0.5%))
-- This prevents close orders from being too close together, improving overall strategy effectiveness
-
-## Architecture
-
-The bot is built with a modular architecture supporting multiple exchanges:
-
-### 1. Exchange Clients
-
-#### EdgeX Client (Official SDK)
-
-- REST API client for EdgeX using the official SDK
-- Handles authentication and API requests
-- Manages order placement, cancellation, and status queries
-- Position and account information retrieval
-
-#### Backpack Client (Official SDK)
-
-- REST API client for Backpack using the official BPX SDK
-- Handles authentication and API requests
-- Manages order placement, cancellation, and status queries
-- Position and account information retrieval
-
-### 2. WebSocket Managers
-
-#### EdgeX WebSocket Manager (Official SDK)
-
-- WebSocket connection management using the official SDK
-- Real-time market data streaming
-- Order update notifications
-- Automatic connection handling
-
-#### Backpack WebSocket Manager
-
-- WebSocket connection management for Backpack
-- Real-time order update notifications
-- ED25519 signature authentication
-- Automatic connection handling
-
-### 3. Main Trading Bot (`runbot.py`)
-
-- Core scalping logic
-- Order placement and monitoring
-- Position management
-- Main trading loop
-- Multi-exchange support
 
 ## Logging
 
@@ -181,12 +189,18 @@ The bot provides comprehensive logging:
 - **Console Output**: Real-time status updates
 - **Error Handling**: Comprehensive error logging and handling
 
-## Safety Features
+## Q & A
 
-- **Order Limits**: Configurable maximum order count
-- **Timeout Handling**: Automatic order cancellation on timeouts
-- **Position Monitoring**: Continuous position and order status checking
-- **Error Recovery**: Graceful handling of API errors and disconnections
+### How to configure multiple accounts for the same exchange on the same device?
+1. Create a .env file for each account, such as account_1.env, account_2.env
+2. Configure the keys for each account in each file
+3. Use different `--env-file` parameters in the command line to start different accounts, such as `python runbot.py --env-file account_1.env [other parameters...]`
+
+### How to configure multiple accounts for different exchanges on the same device?
+Configure all different exchange accounts in the same `.env` file, then use different `--exchange` parameters in the command line to start different exchanges, such as `python runbot.py --exchange backpack [other parameters...]`
+
+### How to configure multiple contracts for the same account and exchange on the same device?
+Configure the account in the `.env` file, then use different `--ticker` parameters in the command line to start different contracts, such as `python runbot.py --ticker ETH [other parameters...]`
 
 ## Contributing
 
@@ -203,11 +217,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Disclaimer
 
 This software is for educational and research purposes only. Trading cryptocurrencies involves significant risk and can result in substantial financial losses. Use at your own risk and never trade with money you cannot afford to lose.
-
-## Support
-
-For issues related to:
-
-- **EdgeX API**: Check the [EdgeX API documentation](https://docs.edgex.exchange)
-- **EdgeX SDK**: Check the [EdgeX Python SDK documentation](https://github.com/edgex-Tech/edgex-python-sdk)
-- **This Bot**: Open an issue in this repository

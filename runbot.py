@@ -30,7 +30,7 @@ def parse_arguments():
                         help='Order quantity (default: 0.1)')
     parser.add_argument('--take-profit', type=Decimal, default=Decimal(0.02),
                         help='Take profit in USDT (default: 0.02)')
-    parser.add_argument('--direction', type=str, default='buy',
+    parser.add_argument('--direction', type=str, default='buy', choices=['buy', 'sell'],
                         help='Direction of the bot (default: buy)')
     parser.add_argument('--max-orders', type=int, default=40,
                         help='Maximum number of active orders (default: 40)')
@@ -39,7 +39,13 @@ def parse_arguments():
     parser.add_argument('--env-file', type=str, default=".env",
                         help=".env file path (default: .env)")
     parser.add_argument('--grid-step', type=str, default='-100',
-                        help="The minimum distance in percentage to the next close order price (default: -100)")
+                        help='The minimum distance in percentage to the next close order price (default: -100)')
+    parser.add_argument('--stop-price', type=Decimal, default=-1,
+                        help='Price to stop trading and exit. Buy: exits if price >= stop-price.'
+                        'Sell: exits if price <= stop-price. (default: -1, no stop)')
+    parser.add_argument('--pause-price', type=Decimal, default=-1,
+                        help='Pause trading and wait. Buy: pause if price >= pause-price.'
+                        'Sell: pause if price <= pause-price. (default: -1, no pause)')
 
     return parser.parse_args()
 
@@ -64,7 +70,9 @@ async def main():
         max_orders=args.max_orders,
         wait_time=args.wait_time,
         exchange=args.exchange,
-        grid_step=Decimal(args.grid_step)
+        grid_step=Decimal(args.grid_step),
+        stop_price=Decimal(args.stop_price),
+        pause_price=Decimal(args.pause_price)
     )
 
     # Create and run the bot

@@ -28,6 +28,8 @@ class TradingConfig:
     wait_time: int
     exchange: str
     grid_step: Decimal
+    stop_price: Decimal
+    pause_price: Decimal
 
     @property
     def close_order_side(self) -> str:
@@ -113,6 +115,7 @@ class TradingBot:
 
                 if status == 'FILLED':
                     if order_type == "OPEN":
+                        self.order_filled_amount = filled_size
                         # Ensure thread-safe interaction with asyncio event loop
                         if self.loop is not None:
                             self.loop.call_soon_threadsafe(self.order_filled_event.set)
@@ -247,11 +250,13 @@ class TradingBot:
             try:
                 cancel_result = await self.exchange_client.cancel_order(order_id)
                 if not cancel_result.success:
+                    self.order_canceled_event.set()
                     self.logger.log(f"[CLOSE] Failed to cancel order {order_id}: {cancel_result.error_message}", "ERROR")
                 else:
                     self.current_order_status = "CANCELED"
 
             except Exception as e:
+                self.order_canceled_event.set()
                 self.logger.log(f"[CLOSE] Error canceling order {order_id}: {e}", "ERROR")
 
             if self.config.exchange == "backpack":
@@ -315,7 +320,8 @@ class TradingBot:
                     if isinstance(order, dict)
                 )
 
-                self.logger.log(f"Current Position: {position_amt} | Active closing amount: {active_close_amount}")
+                self.logger.log(f"Current Position: {position_amt} | Active closing amount: {active_close_amount} | "
+                                f"Order quantity: {len(self.active_close_orders)}")
                 self.last_log_time = time.time()
                 # Check for position mismatch
                 if abs(position_amt - active_close_amount) > (2 * self.config.quantity):
@@ -324,14 +330,11 @@ class TradingBot:
                     error_message += "###### ERROR ###### ERROR ###### ERROR ###### ERROR #####\n"
                     error_message += "Please manually rebalance your position and take-profit orders\n"
                     error_message += "请手动平衡当前仓位和正在关闭的仓位\n"
-                    error_message += f"current position: {position_amt} | active closing amount: {active_close_amount}\n"
+                    error_message += f"current position: {position_amt} | active closing amount: {active_close_amount} | "f"Order quantity: {len(self.active_close_orders)}\n"
                     error_message += "###### ERROR ###### ERROR ###### ERROR ###### ERROR #####\n"
                     self.logger.log(error_message, "ERROR")
 
-                    lark_token = os.getenv("LARK_TOKEN")
-                    if lark_token:
-                        async with LarkBot(lark_token) as bot:
-                            await bot.send_text(error_message.lstrip())
+                    await self._lark_bot_notify(error_message.lstrip())
 
                     if not self.shutdown_requested:
                         self.shutdown_requested = True
@@ -375,10 +378,60 @@ class TradingBot:
         else:
             return True
 
+    async def _check_price_condition(self) -> bool:
+        stop_trading = False
+        pause_trading = False
+
+        if self.config.pause_price == self.config.stop_price == -1:
+            return stop_trading, pause_trading
+
+        best_bid, best_ask = await self.exchange_client.fetch_bbo_prices(self.config.contract_id)
+        if best_bid <= 0 or best_ask <= 0 or best_bid >= best_ask:
+            raise ValueError("No bid/ask data available")
+
+        if self.config.stop_price != -1:
+            if self.config.direction == "buy":
+                if best_ask >= self.config.stop_price:
+                    stop_trading = True
+            elif self.config.direction == "sell":
+                if best_bid <= self.config.stop_price:
+                    stop_trading = True
+
+        if self.config.pause_price != -1:
+            if self.config.direction == "buy":
+                if best_ask >= self.config.pause_price:
+                    pause_trading = True
+            elif self.config.direction == "sell":
+                if best_bid <= self.config.pause_price:
+                    pause_trading = True
+
+        return stop_trading, pause_trading
+
+    async def _lark_bot_notify(self, message: str):
+        lark_token = os.getenv("LARK_TOKEN")
+        if lark_token:
+            async with LarkBot(lark_token) as bot:
+                await bot.send_text(message)
+
     async def run(self):
         """Main trading loop."""
         try:
             self.config.contract_id, self.config.tick_size = await self.exchange_client.get_contract_attributes()
+
+            # Log current TradingConfig
+            self.logger.log("=== Trading Configuration ===", "INFO")
+            self.logger.log(f"Ticker: {self.config.ticker}", "INFO")
+            self.logger.log(f"Contract ID: {self.config.contract_id}", "INFO")
+            self.logger.log(f"Quantity: {self.config.quantity}", "INFO")
+            self.logger.log(f"Take Profit: {self.config.take_profit}%", "INFO")
+            self.logger.log(f"Direction: {self.config.direction}", "INFO")
+            self.logger.log(f"Max Orders: {self.config.max_orders}", "INFO")
+            self.logger.log(f"Wait Time: {self.config.wait_time}s", "INFO")
+            self.logger.log(f"Exchange: {self.config.exchange}", "INFO")
+            self.logger.log(f"Grid Step: {self.config.grid_step}%", "INFO")
+            self.logger.log(f"Stop Price: {self.config.stop_price}", "INFO")
+            self.logger.log(f"Pause Price: {self.config.pause_price}", "INFO")
+            self.logger.log("=============================", "INFO")
 
             # Capture the running event loop for thread-safe callbacks
             self.loop = asyncio.get_running_loop()
@@ -402,6 +455,19 @@ class TradingBot:
 
                 # Periodic logging
                 mismatch_detected = await self._log_status_periodically()
+
+                stop_trading, pause_trading = await self._check_price_condition()
+                if stop_trading:
+                    msg = f"\n\nWARNING: [{self.config.exchange.upper()}_{self.config.ticker.upper()}] \n"
+                    msg += "Stopped trading due to stop price\n"
+                    await self.graceful_shutdown(msg)
+                    await self._lark_bot_notify(msg.lstrip())
+                    continue
+
+                if pause_trading:
+                    await asyncio.sleep(5)
+                    continue
+
                 if not mismatch_detected:
                     wait_time = self._calculate_wait_time()
 

@@ -376,7 +376,7 @@ class EdgeXClient(BaseExchangeClient):
     async def get_active_orders(self, contract_id: str) -> List[OrderInfo]:
         """Get active orders for a contract using official SDK."""
         # Get active orders using official SDK
-        params = GetActiveOrderParams(size="100", offset_data="")
+        params = GetActiveOrderParams(size="200", offset_data="", filter_contract_id_list=[contract_id])
         active_orders = await self.client.get_active_orders(params)
 
         if not active_orders or 'data' not in active_orders:
