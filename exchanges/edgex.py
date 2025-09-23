@@ -229,7 +229,8 @@ class EdgeXClient(BaseExchangeClient):
                         order_id=order_id,
                         side=side.value,
                         size=quantity,
-                        price=order_price
+                        price=order_price,
+                        status='OPEN'
                     )
 
             except Exception as e:

@@ -13,6 +13,9 @@ exchanges/
 ├── __init__.py          # Module initialization
 ├── base.py              # Base exchange client interface
 ├── edgex.py             # EdgeX exchange implementation
+├── backpack.py          # Backpack exchange implementation
+├── paradex.py           # Paradex exchange implementation
+├── aster.py             # Aster exchange implementation
 ├── factory.py           # Exchange factory for dynamic selection
 └── your_exchange.py     # Your new exchange implementation
 ```
@@ -100,6 +103,9 @@ from .your_exchange import YourExchangeClient
 class ExchangeFactory:
     _registered_exchanges = {
         'edgex': EdgeXClient,
+        'backpack': BackpackClient,
+        'paradex': ParadexClient,
+        'aster': AsterClient,
         'your_exchange': YourExchangeClient,  # Add this line
     }
 ```
@@ -111,7 +117,7 @@ Add your exchange to `exchanges/__init__.py`:
 ```python
 from .your_exchange import YourExchangeClient
 
-__all__ = ['BaseExchangeClient', 'EdgeXClient', 'YourExchangeClient', 'ExchangeFactory']
+__all__ = ['BaseExchangeClient', 'EdgeXClient', 'BackpackClient', 'ParadexClient', 'AsterClient', 'YourExchangeClient', 'ExchangeFactory']
 ```
 
 ### 4. Test Your Implementation

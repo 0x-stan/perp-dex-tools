@@ -16,6 +16,7 @@ def query_retry(
     max_attempts: int = 5,
     min_wait: float = 1,
     max_wait: float = 10,
+    reraise: bool = False
 ):
     def retry_error_callback(retry_state: RetryCallState):
         print(f"Operation: [{retry_state.fn.__name__}] failed after {retry_state.attempt_number} retries, exception: {str(retry_state.outcome.exception())}")
@@ -26,7 +27,7 @@ def query_retry(
         wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
         retry=retry_if_exception_type(exception_type),
         retry_error_callback=retry_error_callback,
-        reraise=False
+        reraise=reraise
     )
 
 @dataclass

@@ -1,7 +1,7 @@
 ##### Follow Me - **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
 ## Multi-Exchange Trading Bot
 
-A modular trading bot that supports multiple exchanges including EdgeX, Backpack, and Paradex. The bot implements an automated strategy that places orders and automatically closes them at a profit.
+A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, and Aster. The bot implements an automated strategy that places orders and automatically closes them at a profit.
 
 ## Referral Links (Enjoy fee rebates and benefits)
 
@@ -13,6 +13,9 @@ You will get 30% fee rebates on all your trading fees
 
 #### Paradex Exchange: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
 You will get 10% taker fee discount rebates and potential future benefits
+
+#### Aster Exchange: [https://www.asterdex.com/zh-CN/referral/5191B1](https://www.asterdex.com/zh-CN/referral/5191B1)
+You will get 10% fee rebates and potential points boost
 
 ## Installation
 
@@ -165,9 +168,14 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 - `PARADEX_L1_ADDRESS`: L1 wallet address
 - `PARADEX_L2_PRIVATE_KEY`: L2 wallet private key (click avatar, wallet, "copy paradex private key")
 
+#### Aster Configuration
+
+- `ASTER_API_KEY`: Your Aster API Key
+- `ASTER_SECRET_KEY`: Your Aster API Secret
+
 ### Command Line Arguments
 
-- `--exchange`: Exchange to use: 'edgex', 'backpack', or 'paradex' (default: edgex)
+- `--exchange`: Exchange to use: 'edgex', 'backpack', 'paradex', or 'aster' (default: edgex)
 - `--ticker`: Base asset symbol (e.g., ETH, BTC, SOL). Contract ID is auto-resolved.
 - `--quantity`: Order quantity (default: 0.1)
 - `--take-profit`: Take profit percent (e.g., 0.02 means 0.02%)
