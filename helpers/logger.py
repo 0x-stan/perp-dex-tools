@@ -13,7 +13,7 @@ from decimal import Decimal
 class TradingLogger:
     """Enhanced logging with structured output and error handling."""
 
-    def __init__(self, exchange: str, ticker: str, log_to_console: bool = False):
+    def __init__(self, exchange: str, ticker: str, log_to_console: bool = False, file_name_prefix: str = ""):
         self.exchange = exchange
         self.ticker = ticker
         # Ensure logs directory exists at the project root
@@ -28,16 +28,20 @@ class TradingLogger:
         if account_name:
             order_file_name = f"{exchange}_{ticker}_{account_name}_orders.csv"
             debug_log_file_name = f"{exchange}_{ticker}_{account_name}_activity.log"
+        
+        if file_name_prefix != "":
+            order_file_name = f"{file_name_prefix}/{order_file_name}"
+            debug_log_file_name = f"{file_name_prefix}/{debug_log_file_name}"
 
         # Log file paths inside logs directory
         self.log_file = os.path.join(logs_dir, order_file_name)
         self.debug_log_file = os.path.join(logs_dir, debug_log_file_name)
         self.timezone = pytz.timezone(os.getenv('TIMEZONE', 'Asia/Shanghai'))
-        self.logger = self._setup_logger(log_to_console)
+        self.logger = self._setup_logger(log_to_console, file_name_prefix=file_name_prefix)
 
-    def _setup_logger(self, log_to_console: bool) -> logging.Logger:
+    def _setup_logger(self, log_to_console: bool, file_name_prefix: str) -> logging.Logger:
         """Setup the logger with proper configuration."""
-        logger = logging.getLogger(f"trading_bot_{self.exchange}_{self.ticker}")
+        logger = logging.getLogger(f"{file_name_prefix or 'trading_bot'}_{self.exchange}_{self.ticker}")
         logger.setLevel(logging.INFO)
 
         # Prevent duplicate handlers
@@ -90,11 +94,11 @@ class TradingLogger:
         else:
             self.logger.info(formatted_message)
 
-    def log_transaction(self, order_id: str, side: str, quantity: Decimal, price: Decimal, status: str):
+    def log_transaction(self, order_id: str, side: str, quantity: Decimal, price: Decimal, status: str, market_type: str = "PERP"):
         """Log a transaction to CSV file."""
         try:
             timestamp = datetime.now(self.timezone).strftime("%Y-%m-%d %H:%M:%S")
-            row = [timestamp, order_id, side, quantity, price, status]
+            row = [timestamp, order_id, side, quantity, price, status, market_type.upper()]
 
             # Check if file exists to write headers
             file_exists = os.path.isfile(self.log_file)
@@ -102,7 +106,7 @@ class TradingLogger:
             with open(self.log_file, 'a', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 if not file_exists:
-                    writer.writerow(['Timestamp', 'OrderID', 'Side', 'Quantity', 'Price', 'Status'])
+                    writer.writerow(['Timestamp', 'OrderID', 'Side', 'Quantity', 'Price', 'Status', 'MarketType'])
                 writer.writerow(row)
 
         except Exception as e:

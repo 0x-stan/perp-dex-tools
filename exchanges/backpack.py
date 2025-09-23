@@ -10,6 +10,7 @@ import base64
 import sys
 from decimal import Decimal
 from typing import Dict, Any, List, Optional, Tuple
+from dataclasses import dataclass
 from cryptography.hazmat.primitives.asymmetric import ed25519
 import websockets
 from bpx.public import Public
@@ -19,6 +20,72 @@ from bpx.constants.enums import OrderTypeEnum, TimeInForceEnum
 from .base import BaseExchangeClient, OrderResult, OrderInfo, query_retry
 from helpers.logger import TradingLogger
 
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class PositionDataFunction:
+    """函数配置类，用于IMF和MMF函数"""
+    type: str  # 通常为 "sqrt"
+    base: str
+    factor: str
+
+
+@dataclass
+class PositionData:
+    """交易头寸数据类"""
+    breakEvenPrice: str
+    entryPrice: str
+    estLiquidationPrice: str
+    imf: str
+    imfFunction: PositionDataFunction
+    markPrice: str
+    mmf: str
+    mmfFunction: PositionDataFunction
+    netCost: str
+    netQuantity: str
+    netExposureQuantity: str
+    netExposureNotional: str
+    pnlRealized: str
+    pnlUnrealized: str
+    cumulativeFundingPayment: str
+    subaccountId: int
+    symbol: str
+    userId: int
+    positionId: str
+    cumulativeInterest: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'PositionData':
+        """从字典创建PositionData实例"""
+        # 处理嵌套的函数对象
+        imf_function = PositionDataFunction(**data['imfFunction'])
+        mmf_function = PositionDataFunction(**data['mmfFunction'])
+        
+        # 创建PositionData实例，排除函数字段后再添加
+        position_data = {k: v for k, v in data.items() 
+                        if k not in ['imfFunction', 'mmfFunction']}
+        
+        return cls(
+            imfFunction=imf_function,
+            mmfFunction=mmf_function,
+            **position_data
+        )
+
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        result = {}
+        for field_name, field_value in self.__dict__.items():
+            if isinstance(field_value, PositionDataFunction):
+                result[field_name] = {
+                    'type': field_value.type,
+                    'base': field_value.base,
+                    'factor': field_value.factor
+                }
+            else:
+                result[field_name] = field_value
+        return result
 
 class BackpackWebSocketManager:
     """WebSocket manager for Backpack order updates."""
@@ -544,6 +611,17 @@ class BackpackClient(BaseExchangeClient):
         return self.config.contract_id, self.config.tick_size
 
     @query_retry(default_return=0)
+    async def get_account_position(self) -> Optional[PositionData]:
+        """Get account positions using official SDK."""
+        positions_data = self.account_client.get_open_positions()
+        position_res = None
+        for position in positions_data:
+            if position.get('symbol', '') == self.config.contract_id:
+                position_res = PositionData.from_dict(position)
+                break
+        return position_res
+
+    @query_retry(default_return=0)
     async def get_balance(self) -> Decimal:
         """Get spot balance for a specific asset."""
         ticker = self.config.ticker
@@ -555,6 +633,7 @@ class BackpackClient(BaseExchangeClient):
         quote_balance = {
             'available': Decimal(balances_data['USDC']['available']),
             'locked': Decimal(balances_data['USDC']['locked']),
+            'total': Decimal(0),
         }
         quote_balance['total'] = quote_balance['available'] + quote_balance['locked']
         base_balance = {
@@ -565,11 +644,68 @@ class BackpackClient(BaseExchangeClient):
         if ticker in balances_data:
             base_balance['available'] = Decimal(balances_data[ticker]['available'])
             base_balance['locked'] = Decimal(balances_data[ticker]['locked'])
-            balances_data['total'] = base_balance['available'] + base_balance['locked']
-
+            base_balance['total'] = base_balance['available'] + base_balance['locked']
                 
         return {
             'quote': quote_balance,
             'base': base_balance,
         }
 
+    async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
+        """Place an market order with Backpack using official SDK with retry logic."""
+        max_retries = 15
+        retry_count = 0
+
+        while retry_count < max_retries:
+            retry_count += 1
+
+            best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
+
+            if best_bid <= 0 or best_ask <= 0:
+                return OrderResult(success=False, error_message='Invalid bid/ask prices')
+
+            if direction == 'buy':
+                # For buy orders, place slightly below best ask to ensure execution
+                order_price = best_ask
+                side = 'Bid'
+            else:
+                # For sell orders, place slightly above best bid to ensure execution
+                order_price = best_bid
+                side = 'Ask'
+
+            # Place the order using Backpack SDK (post-only to ensure maker order)
+            order_result = self.account_client.execute_order(
+                symbol=contract_id,
+                side=side,
+                order_type=OrderTypeEnum.MARKET,
+                quantity=str(quantity),
+                price=str(self.round_to_tick(order_price)),
+                post_only=False,
+                time_in_force=TimeInForceEnum.GTC
+            )
+
+            if not order_result:
+                return OrderResult(success=False, error_message='Failed to place order')
+
+            if 'code' in order_result:
+                message = order_result.get('message', 'Unknown error')
+                self.logger.log(f"[OPEN] Error placing order: {message}", "ERROR")
+                continue
+
+            # Extract order ID from response
+            order_id = order_result.get('id')
+            if not order_id:
+                self.logger.log(f"[OPEN] No order ID in response: {order_result}", "ERROR")
+                return OrderResult(success=False, error_message='No order ID in response')
+
+            # Order successfully placed
+            return OrderResult(
+                success=True,
+                order_id=order_id,
+                side=side.lower(),
+                size=quantity,
+                price=order_price,
+                status='New'
+            )
+
+        return OrderResult(success=False, error_message='Max retries exceeded')
