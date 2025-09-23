@@ -370,7 +370,7 @@ class BackpackClient(BaseExchangeClient):
 
         return best_bid, best_ask
 
-    async def place_open_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
+    async def place_open_order(self, contract_id: str, quantity: Decimal, direction: str, auto_borrow_and_repay: bool = False) -> OrderResult:
         """Place an open order with Backpack using official SDK with retry logic for POST_ONLY rejections."""
         max_retries = 15
         retry_count = 0
@@ -400,7 +400,9 @@ class BackpackClient(BaseExchangeClient):
                 quantity=str(quantity),
                 price=str(self.round_to_tick(order_price)),
                 post_only=True,
-                time_in_force=TimeInForceEnum.GTC
+                time_in_force=TimeInForceEnum.GTC,
+                auto_borrow=auto_borrow_and_repay,
+                auto_borrow_repay=auto_borrow_and_repay,
             )
 
             if not order_result:
@@ -651,7 +653,7 @@ class BackpackClient(BaseExchangeClient):
             'base': base_balance,
         }
 
-    async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
+    async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str, auto_borrow_and_repay: bool = False) -> OrderResult:
         """Place an market order with Backpack using official SDK with retry logic."""
         max_retries = 15
         retry_count = 0
@@ -681,8 +683,11 @@ class BackpackClient(BaseExchangeClient):
                 quantity=str(quantity),
                 price=str(self.round_to_tick(order_price)),
                 post_only=False,
-                time_in_force=TimeInForceEnum.GTC
+                time_in_force=TimeInForceEnum.GTC,
+                auto_borrow=auto_borrow_and_repay,
+                auto_borrow_repay=auto_borrow_and_repay,
             )
+            self.logger.log(f"market order_result {order_result}")
 
             if not order_result:
                 return OrderResult(success=False, error_message='Failed to place order')

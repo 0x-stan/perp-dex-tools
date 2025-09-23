@@ -10,7 +10,7 @@ import asyncio
 import sys
 import signal
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal, Optional, Tuple
 import dotenv
 from pathlib import Path
@@ -26,6 +26,7 @@ class FundingArbConfig:
     """Configuration class for funding arbitrage trading parameters."""
     ticker: str                   # 交易标的，如 "ETH", "BTC"
     tick_size: Decimal            # 最小价格变动单位
+    contract_id: str
     quantity: Decimal             # 单次开/关仓数量
     max_size: Decimal             # 最大持仓数量限制
     wait_time: int                # 等待 spot 和 future limit order 都成交的最大时间(秒)
@@ -40,6 +41,11 @@ class FundingArbConfig:
     spot_taker_fee: float
     is_unified_account: bool = False  # 是否为统一账户，默认为否
     action: Literal["watching", "open", "close"] = "watching"  # 当前策略状态：观察/开仓/关仓
+    
+    def copy(self) -> 'FundingArbConfig':
+        """Create a copy of the configuration."""
+        from copy import deepcopy
+        return deepcopy(self)
 
 
 class FundingArbBot:
@@ -57,7 +63,8 @@ class FundingArbBot:
         self.perp_contract_id = ""
         self.spot_tick_size = ""
         self.perp_tick_size = ""
-        self.exchange_client = ExchangeFactory.create_exchange(config.exchange, config)
+        self.spot_exchange_client = ExchangeFactory.create_exchange(config.exchange, config.copy())
+        self.perp_exchange_client = ExchangeFactory.create_exchange(config.exchange, config.copy())
         self.logger = TradingLogger(config.exchange, config.ticker, log_to_console=True, file_name_prefix="funding_arb")
         self._running = False
         self._current_spot_position = Decimal('0')
@@ -109,7 +116,8 @@ class FundingArbBot:
                 self.logger.log("Current tasks completed", "INFO")
             
             # Disconnect from exchange
-            await self.exchange_client.disconnect()
+            await self.spot_exchange_client.disconnect()
+            await self.perp_exchange_client.disconnect()
             self.logger.log("Graceful shutdown completed", "INFO")
 
         except Exception as e:
@@ -120,6 +128,9 @@ class FundingArbBot:
         def order_update_handler(message):
             """Handle order updates from WebSocket."""
             try:
+                # Debug: Log all incoming messages
+                self.logger.log(f"WebSocket message received: {message}", "INFO")
+                
                 # Check if this is for our contract
                 market_type = ""
                 if message.get('contract_id') == self.spot_contract_id:
@@ -127,6 +138,7 @@ class FundingArbBot:
                 elif message.get('contract_id') == self.perp_contract_id:
                     market_type = "perp"
                 else:
+                    self.logger.log(f"WebSocket message for unknown contract: {message.get('contract_id')}", "DEBUG")
                     return 
 
                 order_id = message.get('order_id')
@@ -172,7 +184,8 @@ class FundingArbBot:
                 self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
 
         # Setup order update handler
-        self.exchange_client.setup_order_update_handler(order_update_handler)
+        self.spot_exchange_client.setup_order_update_handler(order_update_handler)
+        self.perp_exchange_client.setup_order_update_handler(order_update_handler)
     
     async def _place_and_monitor_order(self, is_open_position: bool) -> bool:
         """Place an order and monitor its execution."""
@@ -188,25 +201,33 @@ class FundingArbBot:
                 'spot': 0,
                 'perp': 0,
             }
-            spot_quantity = (self.config.quantity * Decimal(str(1 + self.config.spot_maker_fee / 100))).quantize(Decimal("0.0001"))
+            spot_quantity = (self.config.quantity / Decimal(str(1 - self.config.spot_maker_fee / 100))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
             perp_quanity = self.config.quantity
+
+            # Log detailed order information
+            self.logger.log(
+                f"Order calculation: base_quantity={self.config.quantity}, spot_maker_fee={self.config.spot_maker_fee}%, "
+                f"calculated_spot_quantity={spot_quantity}, perp_quantity={perp_quanity}"
+            )
 
             # Place the order
             # [OPEN POSITION] spot buy, perp sell
             # [CLOSE POSITION] spot sell, perp buy
             self.logger.log(
-                f"[SPOT] place [{'BUY' if is_open_position else 'SELL'}] order, size {spot_quantity} (include maker fees)\n"
+                f"[SPOT] place [{'BUY' if is_open_position else 'SELL'}] order, size {spot_quantity} | "
                 f"[PERP] place [{'BUY' if not is_open_position else 'SELL'}] order, size {perp_quanity}"
             )
-            spot_order_task = self.exchange_client.place_open_order(
+            spot_order_task = self.spot_exchange_client.place_open_order(
                 self.spot_contract_id,
                 spot_quantity,
-                "buy" if is_open_position else "sell"
+                "buy" if is_open_position else "sell",
+                auto_borrow_and_repay=True,
             )
-            perp_order_task = self.exchange_client.place_open_order(
+            perp_order_task = self.perp_exchange_client.place_open_order(
                 self.perp_contract_id,
                 perp_quanity,
-                "sell" if is_open_position else "buy"
+                "sell" if is_open_position else "buy",
+                auto_borrow_and_repay=True,
             )
             # Track order placement tasks
             self._current_tasks.update([spot_order_task, perp_order_task])
@@ -218,12 +239,15 @@ class FundingArbBot:
 
             if not spot_order_result.success:
                 self.logger.log(f"Failed to place SPOT order: {spot_order_result.error_message}", "ERROR")
+                self.logger.log(f"SPOT order details: contract_id={self.spot_contract_id}, quantity={spot_quantity}, direction={'buy' if is_open_position else 'sell'}", "ERROR")
                 return False
             if not perp_order_result.success:
                 self.logger.log(f"Failed to place PERP order: {perp_order_result.error_message}", "ERROR")
+                self.logger.log(f"PERP order details: contract_id={self.perp_contract_id}, quantity={perp_quanity}, direction={'sell' if is_open_position else 'buy'}", "ERROR")
                 return False
 
             # Wait for fill or timeout
+            is_order_timeout = False
             if not self.order_filled_event['spot'].is_set() or not self.order_filled_event['perp'].is_set():
                 try:
                     # Create and track event waiting tasks
@@ -235,8 +259,7 @@ class FundingArbBot:
                     )
                         
                 except asyncio.TimeoutError:
-                    await self._handle_position_mismatch(action=self.config.action)
-                    return True
+                    is_order_timeout = True
 
             # Handle order result
             spot_handle_task = asyncio.create_task(self._handle_orders_result('spot', spot_order_result))
@@ -247,6 +270,10 @@ class FundingArbBot:
             finally:
                 self._current_tasks.discard(spot_handle_task)
                 self._current_tasks.discard(perp_handle_task)
+            
+            if is_order_timeout:
+                await self._handle_position_mismatch(action=self.config.action)
+
             return spot_res and perp_res
 
         except Exception as e:
@@ -261,7 +288,7 @@ class FundingArbBot:
 
         if self.order_filled_event[market_type].is_set():
             # Both spot and perp open order success
-            log_message = f"[{action.upper()}] [{market_type.upper()}] [{order_result.order_id}] @{order_result.price} size {order_result.size}"
+            log_message = f"[{action.upper()} {market_type.upper()}] [{order_result.status}] [{order_result.order_id}] @{order_result.price} size {order_result.size}"
             self.logger.log(log_message, "INFO")
             await self._lark_bot_notify(log_message.lstrip())
             return True
@@ -269,23 +296,21 @@ class FundingArbBot:
         else:
             self.order_canceled_event[market_type].clear()
             # Cancel the order if it's still open
-            log_message = f"[{action.upper()}] [{market_type.upper()}] [{order_result.order_id}] Order time out, trying to cancel order\n"
+            self.logger.log(f"[{action.upper()}] [{market_type.upper()}] [{order_result.order_id}] Order time out, trying to cancel order. ", "INFO")
             try:
-                cancel_result = await self.exchange_client.cancel_order(order_result.order_id)
+                _exchange_client = self.spot_exchange_client if market_type == "spot" else self.perp_exchange_client
+                cancel_result = await _exchange_client.cancel_order(order_result.order_id)
+                self.logger.log(f"cancel_result {cancel_result}")
                 if not cancel_result.success:
                     self.order_canceled_event[market_type].set()
-                    log_message += f"[{action.upper()}] [{market_type.upper()}] Failed to cancel order {order_result.order_id}: {cancel_result.error_message}"
+                    self.logger.log(f"[{action.upper()}] [{market_type.upper()}] Failed to cancel order {order_result.order_id}: {cancel_result.error_message}", "ERROR")
                 else:
-                    log_message += f"[{action.upper()}] [{market_type.upper()}] cancel order {order_result.order_id} success"
                     self.current_order_status[market_type] = "CANCELED"
+                    self.logger.log(f"[{action.upper()}] [{market_type.upper()}] cancel order {order_result.order_id} success", "INFO")
 
-                self.logger.log(log_message, "ERROR")
             except Exception as e:
                 self.order_canceled_event[market_type].set()
-                log_message += f"[{action.upper()}] [{market_type.upper()}] Error canceling order {order_result.order_id}: {e}"
-                self.logger.log(log_message, "ERROR")
-
-            self.logger.log(log_message, "INFO")
+                self.logger.log(f"[{action.upper()}] [{market_type.upper()}] Error canceling order {order_result.order_id}: {e}", "ERROR")
 
             if self.config.exchange == "backpack":
                 self.order_filled_amount[market_type] = cancel_result.filled_size if 'cancel_result' in locals() else 0
@@ -295,7 +320,7 @@ class FundingArbBot:
                     try:
                         await asyncio.wait_for(self.order_canceled_event[market_type].wait(), timeout=5)
                     except asyncio.TimeoutError:
-                        order_info = await self.exchange_client.get_order_info(order_result.order_id)
+                        order_info = await _exchange_client.get_order_info(order_result.order_id)
                         self.order_filled_amount[market_type] = order_info.filled_size
 
             return True
@@ -304,30 +329,45 @@ class FundingArbBot:
     
     async def _handle_position_mismatch(self, action:str) -> bool:
         # handle unfilled orders
-        mismatch_amount = self._current_spot_position - self._current_perp_position
+        await self.get_positions()
+        mismatch_amount = self.order_filled_amount['perp'] - self.order_filled_amount['spot']
         min_amount = self._min_order_amount()
         if abs(mismatch_amount) > min_amount:
             action = self.config.action
             is_positive = mismatch_amount > Decimal(0)
-            if action == "open":
-                market_type = "PERP" if is_positive else "SPOT"
-                contract_id = self.perp_contract_id if is_positive else self.spot_contract_id
-                direction = "sell" if market_type == "PERP" else "buy"
-            elif action == "close":
-                market_type = "PERP" if not is_positive else "SPOT"
-                contract_id = self.perp_contract_id if not is_positive else self.spot_contract_id
-                direction = "sell" if market_type == "SPOT" else "buy"
+            if action == "open" and is_positive:
+                market_type = "PERP"
+                contract_id = self.perp_contract_id
+                direction = "sell"
+            elif action == "open" and not is_positive:
+                market_type = "SPOT"
+                contract_id = self.spot_contract_id
+                direction = "buy"
+            elif action == "close" and is_positive:
+                market_type = "SPOT"
+                contract_id = self.spot_contract_id
+                direction = "sell"
+            elif action == "close" and not is_positive:
+                market_type = "PERP"
+                contract_id = self.perp_contract_id
+                direction = "buy"
             else:
                 return
-            self.logger.log(f"place market order to match position [{action.upper()}] [{market_type.upper()}] size {mismatch_amount}")
-            market_order_result = await self.exchange_client.place_market_order(
+            self.logger.log(f"place market order to match position [{action.upper()}] [{market_type.upper()}] size {abs(mismatch_amount)}")
+            mismatch_amount = abs(mismatch_amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
+            _exchange_client = self.spot_exchange_client if market_type == "SPOT" else self.perp_exchange_client
+            market_order_result = await _exchange_client.place_market_order(
                 contract_id=contract_id,
-                quantity=abs(mismatch_amount),
-                direction=direction
+                quantity=mismatch_amount,
+                direction=direction,
+                auto_borrow_and_repay=True,
             )
             if not market_order_result.success:
-                self.logger.log(f"Error: Failed to place [{direction.upper()}] [{market_type.upper()}] order: {market_order_result.error_message}", "ERROR")
+                log_message = f"Failed to place [{direction.upper()}] [{market_type.upper()}] [{direction.upper()}] order: {market_order_result.error_message}"
+                self.logger.log(log_message, "ERROR")
+                self._lark_bot_notify(log_message)
                 return False
+            self._lark_bot_notify(f"MarketOrder [{direction.upper()}] [{market_type.upper()}] [{direction.upper()}]: {market_order_result.error_message}")
         else:
             # order amount too small
             self.logger.log(f"handle_order_unfilled: order amount too small, size {mismatch_amount}, min order notional {min_amount}")
@@ -346,8 +386,8 @@ class FundingArbBot:
             float: Price difference rate (diff_rate = price_diff / spot_price)
         """
         # Get spot and perp prices using Backpack exchange client
-        spot_best_bid, spot_best_ask = await self.exchange_client.fetch_bbo_prices(self.spot_contract_id)
-        perp_best_bid, perp_best_ask = await self.exchange_client.fetch_bbo_prices(self.perp_contract_id)
+        spot_best_bid, spot_best_ask = await self.spot_exchange_client.fetch_bbo_prices(self.spot_contract_id)
+        perp_best_bid, perp_best_ask = await self.perp_exchange_client.fetch_bbo_prices(self.perp_contract_id)
         
         if action == "open":
             # Open: spot best_ask - perp best_bid (期望 spot < perp)
@@ -382,8 +422,8 @@ class FundingArbBot:
     
     async def get_positions(self):
         # Create and track balance/position tasks
-        balance_task = asyncio.create_task(self.exchange_client.get_balance())
-        position_task = asyncio.create_task(self.exchange_client.get_account_positions())
+        balance_task = asyncio.create_task(self.spot_exchange_client.get_balance())
+        position_task = asyncio.create_task(self.perp_exchange_client.get_account_positions())
         self._current_tasks.update([balance_task, position_task])
         
         try:
@@ -440,7 +480,7 @@ class FundingArbBot:
         Returns:
             float: Liquidation rate (0-1, where 1 means liquidation imminent)
         """
-        position: Optional[PositionData] = await self.exchange_client.get_account_position()
+        position: Optional[PositionData] = await self.perp_exchange_client.get_account_position()
         if not position:
             return 0
         entry_price = Decimal(str(position.entryPrice))
@@ -461,12 +501,12 @@ class FundingArbBot:
         order_size = max(self._current_spot_position, self._current_perp_position) / Decimal("4")
         self.logger.log(f"emergency_reduce_position: close position size {order_size}")
         # [CLOSE POSITION] spot sell, perp buy
-        spot_order_task = self.exchange_client.place_market_order(
+        spot_order_task = self.spot_exchange_client.place_market_order(
             contract_id=self.spot_contract_id,
             quantity=order_size,
             direction="sell"
         )
-        perp_order_task = self.exchange_client.place_market_order(
+        perp_order_task = self.perp_exchange_client.place_market_order(
             contract_id=self.perp_contract_id,
             quantity=order_size,
             direction="buy"
@@ -486,7 +526,7 @@ class FundingArbBot:
         mid_price = (self._bbo['perp']['best_bid'] + self._bbo['perp']['best_ask']) / Decimal("2")
         if mid_price == Decimal("0"):
             return Decimal("0.025")
-        return self.config.min_order_notional / mid_price
+        return (self.config.min_order_notional / mid_price).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
     async def _log_status_periodically(self) -> bool:
         """Log status information periodically, including positions."""
@@ -545,8 +585,8 @@ class FundingArbBot:
         """
         try:
 
-            self.spot_contract_id, self.spot_tick_size = await self.exchange_client.get_contract_attributes(exchange_type="SPOT")
-            self.perp_contract_id, self.perp_tick_size = await self.exchange_client.get_contract_attributes(exchange_type="PERP")
+            self.spot_contract_id, self.spot_tick_size = await self.spot_exchange_client.get_contract_attributes(exchange_type="SPOT")
+            self.perp_contract_id, self.perp_tick_size = await self.perp_exchange_client.get_contract_attributes(exchange_type="PERP")
 
             # Log current TradingConfig
             self.logger.log("=== Trading Configuration ===", "INFO")
@@ -567,18 +607,17 @@ class FundingArbBot:
             # Capture the running event loop for thread-safe callbacks
             self.loop = asyncio.get_running_loop()
             # Connect to exchange
-            await self.exchange_client.connect()
+            await self.spot_exchange_client.connect()
+            await self.perp_exchange_client.connect()
+            
+            # Setup WebSocket handlers AFTER connecting
+            self._setup_websocket_handlers()
 
             target_size = self.config.max_size # TODO: calc target_size by balance
             action = self.config.action
             
             # Main trading loop
             while not self.shutdown_requested:
-                # if there is [OPEN] order, wait
-                if "OPEN" in self.current_order_status.values():
-                    self.logger.log(f"there is [OPEN] order, wait {self.current_order_status}")
-                    time.sleep(1)
-                    continue
 
                 # Create tasks and track them
                 price_task = asyncio.create_task(self.calculate_price_diff_rate(action))
@@ -594,8 +633,8 @@ class FundingArbBot:
                     self._current_tasks.discard(price_task)
                     self._current_tasks.discard(position_task)
 
+                self.logger.log(f"spot_position {spot_position} | perp_position {perp_position} | target_size {target_size} | price_diff {price_diff} | diff_rate {diff_rate*100:.4f}%")
                 if action == "open":
-                    self.logger.log(f"spot_position {spot_position} | perp_position {perp_position} | target_size {target_size}")
                     if max(spot_position, perp_position) < target_size and diff_rate <= self.config.open_max_diff_rate / 100:
                         await self.open_position()
                 elif action == "close" and diff_rate >= self.config.close_min_diff_rate / 100:
@@ -616,7 +655,8 @@ class FundingArbBot:
         finally:
             # Ensure all connections are closed even if graceful shutdown fails
             try:
-                await self.exchange_client.disconnect()
+                await self.spot_exchange_client.disconnect()
+                await self.perp_exchange_client.disconnect()
             except Exception as e:
                 self.logger.log(f"Error disconnecting from exchange: {e}", "ERROR")
 
@@ -639,20 +679,21 @@ async def main():
     config = FundingArbConfig(
         ticker="ETH",
         tick_size=Decimal(0),
+        contract_id="",
         quantity=Decimal("0.0030"),
-        max_size=Decimal("0.0120"),
+        max_size=Decimal("0.0330"),
         wait_time=1*60,
         exchange="backpack",
         leverage=3,
         open_max_diff_rate=0.03,
-        close_min_diff_rate=0.20,
+        close_min_diff_rate=0.05,
         max_liquidation_rate=0.5,
         min_order_notional=Decimal("10"),
         spot_maker_fee=0.08,
         spot_taker_fee=0.10,
-        close_order_side="sell",
+        close_order_side="buy",
         is_unified_account=True,
-        action="open",
+        action="close",
     )
 
     # Create and run the bot
