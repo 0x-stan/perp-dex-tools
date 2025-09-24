@@ -7,6 +7,7 @@ from .base import BaseExchangeClient
 from .edgex import EdgeXClient
 from .backpack import BackpackClient
 from .paradex import ParadexClient
+from .aster import AsterClient
 
 
 class ExchangeFactory:
@@ -16,6 +17,7 @@ class ExchangeFactory:
         'edgex': EdgeXClient,
         'backpack': BackpackClient,
         'paradex': ParadexClient,
+        'aster': AsterClient,
     }
 
     @classmethod

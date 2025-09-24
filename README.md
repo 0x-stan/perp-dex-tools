@@ -3,7 +3,7 @@
 **English speakers**: Please read README_EN.md for the English version of this documentation.
 
 ## 自动交易机器人
-一个支持多个交易所（目前包括 EdgeX, Backpack, Paradex）的模块化交易机器人。该机器人实现了自动下单并在盈利时自动平仓的策略，主要目的是取得高交易量。
+一个支持多个交易所（目前包括 EdgeX, Backpack, Paradex, Aster）的模块化交易机器人。该机器人实现了自动下单并在盈利时自动平仓的策略，主要目的是取得高交易量。
 
 
 ## 邀请链接 (获得返佣以及福利)
@@ -16,6 +16,9 @@
 
 #### Paradex 交易所: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
 使用我的推荐链接获得 10% 手续费返佣以及潜在未来福利
+
+#### Aster 交易所: [https://www.asterdex.com/zh-CN/referral/5191B1](https://www.asterdex.com/zh-CN/referral/5191B1)
+使用我的推荐链接获得10%手续费返佣以及积分加成
 
 ## 安装
 
@@ -166,11 +169,16 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 #### Paradex 配置
 
 - `PARADEX_L1_ADDRESS`: L1钱包地址
-- `PARADEX_L2_PRIVATE_KEY`: L2钱包私钥（点击头像，钱包，“复制paradex私钥”）
+- `PARADEX_L2_PRIVATE_KEY`: L2钱包私钥（点击头像，钱包，"复制paradex私钥"）
+
+#### Aster 配置
+
+- `ASTER_API_KEY`: 您的 Aster API Key
+- `ASTER_SECRET_KEY`: 您的 Aster API Secret
 
 ### 命令行参数
 
-- `--exchange`: 使用的交易所：'edgex'、'backpack'或'paradex'（默认：edgex）
+- `--exchange`: 使用的交易所：'edgex'、'backpack'、'paradex'或'aster'（默认：edgex）
 - `--ticker`: 标的资产符号（例如：ETH、BTC、SOL）。合约 ID 自动解析。
 - `--quantity`: 订单数量（默认：0.1）
 - `--take-profit`: 止盈百分比（例如 0.02 表示 0.02%）
