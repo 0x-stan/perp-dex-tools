@@ -30,6 +30,7 @@ class TradingConfig:
     grid_step: Decimal
     stop_price: Decimal
     pause_price: Decimal
+    aster_boost: bool
 
     @property
     def close_order_side(self) -> str:
@@ -224,25 +225,32 @@ class TradingBot:
         filled_price = order_result.price
 
         if self.order_filled_event.is_set() or order_result.status == 'FILLED':
-            self.last_open_order_time = time.time()
-            # Place close order
-            close_side = self.config.close_order_side
-            if close_side == 'sell':
-                close_price = filled_price * (1 + self.config.take_profit/100)
+            if self.config.aster_boost:
+                close_order_result = await self.exchange_client.place_market_order(
+                    self.config.contract_id,
+                    self.config.quantity,
+                    self.config.close_order_side
+                )
             else:
-                close_price = filled_price * (1 - self.config.take_profit/100)
+                self.last_open_order_time = time.time()
+                # Place close order
+                close_side = self.config.close_order_side
+                if close_side == 'sell':
+                    close_price = filled_price * (1 + self.config.take_profit/100)
+                else:
+                    close_price = filled_price * (1 - self.config.take_profit/100)
 
-            close_order_result = await self.exchange_client.place_close_order(
-                self.config.contract_id,
-                self.config.quantity,
-                close_price,
-                close_side
-            )
+                close_order_result = await self.exchange_client.place_close_order(
+                    self.config.contract_id,
+                    self.config.quantity,
+                    close_price,
+                    close_side
+                )
 
-            if not close_order_result.success:
-                self.logger.log(f"[CLOSE] Failed to place close order: {close_order_result.error_message}", "ERROR")
+                if not close_order_result.success:
+                    self.logger.log(f"[CLOSE] Failed to place close order: {close_order_result.error_message}", "ERROR")
 
-            return True
+                return True
 
         else:
             self.order_canceled_event.clear()
@@ -273,17 +281,24 @@ class TradingBot:
 
             if self.order_filled_amount > 0:
                 close_side = self.config.close_order_side
-                if close_side == 'sell':
-                    close_price = filled_price * (1 + self.config.take_profit/100)
+                if self.config.aster_boost:
+                    close_order_result = await self.exchange_client.place_close_order(
+                        self.config.contract_id,
+                        self.order_filled_amount,
+                        close_side
+                    )
                 else:
-                    close_price = filled_price * (1 - self.config.take_profit/100)
+                    if close_side == 'sell':
+                        close_price = filled_price * (1 + self.config.take_profit/100)
+                    else:
+                        close_price = filled_price * (1 - self.config.take_profit/100)
 
-                close_order_result = await self.exchange_client.place_close_order(
-                    self.config.contract_id,
-                    self.order_filled_amount,
-                    close_price,
-                    close_side
-                )
+                    close_order_result = await self.exchange_client.place_close_order(
+                        self.config.contract_id,
+                        self.order_filled_amount,
+                        close_price,
+                        close_side
+                    )
                 self.last_open_order_time = time.time()
 
                 if not close_order_result.success:
@@ -432,6 +447,7 @@ class TradingBot:
             self.logger.log(f"Grid Step: {self.config.grid_step}%", "INFO")
             self.logger.log(f"Stop Price: {self.config.stop_price}", "INFO")
             self.logger.log(f"Pause Price: {self.config.pause_price}", "INFO")
+            self.logger.log(f"Aster Boost: {self.config.aster_boost}", "INFO")
             self.logger.log("=============================", "INFO")
 
             # Capture the running event loop for thread-safe callbacks

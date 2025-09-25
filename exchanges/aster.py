@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import urlencode
 import aiohttp
 import websockets
+import sys
 
 from .base import BaseExchangeClient, OrderResult, OrderInfo, query_retry
 from helpers.logger import TradingLogger
@@ -611,6 +612,45 @@ class AsterClient(BaseExchangeClient):
             else:
                 return OrderResult(success=False, error_message='Unknown order status: ' + order_status)
 
+    async def place_market_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
+        """Place a market order with Aster."""
+        # Validate direction
+        if direction.lower() not in ['buy', 'sell']:
+            return OrderResult(success=False, error_message=f'Invalid direction: {direction}')
+
+        # Place the market order
+        order_data = {
+            'symbol': contract_id,
+            'side': direction.upper(),
+            'type': 'MARKET',
+            'quantity': str(quantity)
+        }
+
+        result = await self._make_request('POST', '/fapi/v1/order', data=order_data)
+        order_status = result.get('status', '')
+        order_id = result.get('orderId', '')
+
+        start_time = time.time()
+        while order_status != 'FILLED' and time.time() - start_time < 10:
+            await asyncio.sleep(0.2)
+            order_info = await self.get_order_info(order_id)
+            if order_info is not None:
+                order_status = order_info.status
+
+        if order_status != 'FILLED':
+            self.logger.log(f"Market order failed with status: {order_status}", "ERROR")
+            sys.exit(1)
+        # For market orders, we expect them to be filled immediately
+        else:
+            return OrderResult(
+                success=True,
+                order_id=order_id,
+                side=direction.lower(),
+                size=quantity,
+                price=order_info.price,
+                status='FILLED'
+            )
+
     async def cancel_order(self, order_id: str) -> OrderResult:
         """Cancel an order with Aster."""
         try:
@@ -635,12 +675,18 @@ class AsterClient(BaseExchangeClient):
             'orderId': order_id
         })
 
+        order_type = result.get('type', '')
+        if order_type == 'MARKET':
+            price = Decimal(result.get('avgPrice', 0))
+        else:
+            price = Decimal(result.get('price', 0))
+
         if 'orderId' in result:
             return OrderInfo(
                 order_id=str(result['orderId']),
                 side=result.get('side', '').lower(),
                 size=Decimal(result.get('origQty', 0)),
-                price=Decimal(result.get('price', 0)),
+                price=price,
                 status=result.get('status', ''),
                 filled_size=Decimal(result.get('executedQty', 0)),
                 remaining_size=Decimal(result.get('origQty', 0)) - Decimal(result.get('executedQty', 0))

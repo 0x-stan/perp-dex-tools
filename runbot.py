@@ -46,6 +46,8 @@ def parse_arguments():
     parser.add_argument('--pause-price', type=Decimal, default=-1,
                         help='Pause trading and wait. Buy: pause if price >= pause-price.'
                         'Sell: pause if price <= pause-price. (default: -1, no pause)')
+    parser.add_argument('--aster-boost', action='store_true',
+                        help='Use the Boost mode for volume boosting')
 
     return parser.parse_args()
 
@@ -53,6 +55,13 @@ def parse_arguments():
 async def main():
     """Main entry point."""
     args = parse_arguments()
+
+    # Validate aster-boost can only be used with aster exchange
+    if args.aster_boost and args.exchange != 'aster':
+        print(f"Error: --aster-boost can only be used when --exchange is 'aster'. "
+              f"Current exchange: {args.exchange}")
+        sys.exit(1)
+
     env_path = Path(args.env_file)
     if not env_path.exists():
         print(f"Env file not find: {env_path.resolve()}")
@@ -72,7 +81,8 @@ async def main():
         exchange=args.exchange,
         grid_step=Decimal(args.grid_step),
         stop_price=Decimal(args.stop_price),
-        pause_price=Decimal(args.pause_price)
+        pause_price=Decimal(args.pause_price),
+        aster_boost=args.aster_boost
     )
 
     # Create and run the bot
