@@ -1,24 +1,30 @@
 ##### 关注我 **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
+
 ---
+
 **English speakers**: Please read README_EN.md for the English version of this documentation.
 
 ## 自动交易机器人
-一个支持多个交易所（目前包括 EdgeX, Backpack, Paradex, Aster）的模块化交易机器人。该机器人实现了自动下单并在盈利时自动平仓的策略，主要目的是取得高交易量。
 
+一个支持多个交易所（目前包括 EdgeX, Backpack, Paradex, Aster）的模块化交易机器人。该机器人实现了自动下单并在盈利时自动平仓的策略，主要目的是取得高交易量。
 
 ## 邀请链接 (获得返佣以及福利)
 
 #### EdgeX 交易所: [https://pro.edgex.exchange/referral/QUANT](https://pro.edgex.exchange/referral/QUANT)
+
 永久享受 VIP 1 费率；额外 10% 手续费返佣；10% 额外奖励积分
 
 #### Backpack 交易所: [https://backpack.exchange/join/quant](https://backpack.exchange/join/quant)
+
 使用我的推荐链接获得 30% 手续费返佣
 
 #### Paradex 交易所: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
+
 使用我的推荐链接获得 10% 手续费返佣以及潜在未来福利
 
 #### Aster 交易所: [https://www.asterdex.com/zh-CN/referral/5191B1](https://www.asterdex.com/zh-CN/referral/5191B1)
-使用我的推荐链接获得10%手续费返佣以及积分加成
+
+使用我的推荐链接获得 30% 手续费返佣以及积分加成
 
 ## 安装
 
@@ -49,12 +55,12 @@
    ```
 
 4. **设置环境变量**：
-   在项目根目录创建`.env`文件，并使用 env_example.txt 作为样本，修改为你的api密匙。
+   在项目根目录创建`.env`文件，并使用 env_example.txt 作为样本，修改为你的 api 密匙。
 
 ## 策略概述
 
 **重要提醒**：大家一定要先理解了这个脚本的逻辑和风险，这样你就能设置更适合你自己的参数，或者你也可能觉得这不是一个好策略，根本不想用这个策略来刷交易量。我在推特也说过，我不是为了分享而写这些脚本，而是我真的在用这个脚本，所以才写了，然后才顺便分享出来。
-这个脚本主要还是要看长期下来的磨损，只要脚本持续开单，如果一个月后价格到你被套的最高点，那么你这一个月的交易量就都是零磨损的了。所以我认为如果把`--quantity`和`--wait-time`设置的太小，并不是一个好的长期的策略，但确实适合短期内高强度冲交易量。我自己一般用40到60的quantity，450到650的wait-time，以此来保证即使市场和你的判断想法，脚本依然能够持续稳定地下单，直到价格回到你的开单点，实现零磨损刷了交易量。
+这个脚本主要还是要看长期下来的磨损，只要脚本持续开单，如果一个月后价格到你被套的最高点，那么你这一个月的交易量就都是零磨损的了。所以我认为如果把`--quantity`和`--wait-time`设置的太小，并不是一个好的长期的策略，但确实适合短期内高强度冲交易量。我自己一般用 40 到 60 的 quantity，450 到 650 的 wait-time，以此来保证即使市场和你的判断想法，脚本依然能够持续稳定地下单，直到价格回到你的开单点，实现零磨损刷了交易量。
 
 该机器人实现了简单的交易策略：
 
@@ -66,8 +72,8 @@
 6. **网格步长控制**：通过 `--grid-step` 参数控制新订单与现有平仓订单之间的最小价格距离
 7. **停止交易控制**：通过 `--stop-price` 参数控制停止交易的的价格条件
 
-
 #### ⚙️ 关键参数
+
 - **quantity**: 每笔订单的交易数量
 - **take-profit**: 止盈百分比（如 0.02 表示 0.02%）
 - **max-orders**: 最大同时活跃订单数（风险控制）
@@ -85,11 +91,13 @@
 - **作用**：防止平仓订单过于密集，提高成交概率和风险管理
 
 例如，当看多且 `--grid-step 0.5` 时：
+
 - 如果现有平仓订单价格为 2000 USDT
 - 新订单的平仓价格必须低于 1990 USDT（2000 × (1 - 0.5%)）
 - 这样可以避免平仓订单过于接近，提高整体策略效果
 
 #### 📊 交易流程示例
+
 假设当前 ETH 价格为 $2000，设置止盈为 0.02%：
 
 1. **开仓**：在 $2000.40 下买单（略高于市价）
@@ -99,6 +107,7 @@
 5. **重复**：继续下一轮交易
 
 #### 🛡️ 风险控制
+
 - **订单限制**：通过 `max-orders` 限制最大并发订单数
 - **网格控制**：通过 `grid-step` 确保平仓订单有合理间距
 - **下单频率控制**：通过 `wait-time` 确保下单的时间间隔，防止短时间内被套
@@ -147,11 +156,26 @@ ETH 永续合约（带网格步长控制）：
 python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --grid-step 0.3
 ```
 
+### Aster 交易所：
+
+ETH：
+
+```bash
+python runbot.py --exchange aster --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450
+```
+
+ETH（启用 Boost 模式）：
+
+```bash
+python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --aster-boost
+```
+
 ## 配置
 
 ### 环境变量
 
 #### 通用配置
+
 - `ACCOUNT_NAME`: 环境变量中当前账号的名称，用于多账号日志区分，可自定义，非必须
 
 #### EdgeX 配置
@@ -168,8 +192,8 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 
 #### Paradex 配置
 
-- `PARADEX_L1_ADDRESS`: L1钱包地址
-- `PARADEX_L2_PRIVATE_KEY`: L2钱包私钥（点击头像，钱包，"复制paradex私钥"）
+- `PARADEX_L1_ADDRESS`: L1 钱包地址
+- `PARADEX_L2_PRIVATE_KEY`: L2 钱包私钥（点击头像，钱包，"复制 paradex 私钥"）
 
 #### Aster 配置
 
@@ -189,6 +213,8 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 - `--grid-step`: 与下一个平仓订单价格的最小距离百分比（默认：-100，表示无限制）
 - `--stop-price`: 当 `direction` 是 'buy' 时，price >= stop-price 停止交易并退出程序；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易）
 - `--pause-price`: 当 `direction` 是 'buy' 时，price >= pause-price 停止交易并退出程序；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易）
+- `--aster-boost`: 启用 Aster 交易所的 Boost 模式进行交易量提升（仅适用于 aster 交易所）
+  `--aster-boost` 的下单逻辑：下 maker 单开仓，成交后立即用 taker 单关仓，以此循环。磨损为一单 maker，一单 taker 的手续费，以及滑点。
 
 ## 日志记录
 
@@ -202,15 +228,18 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 ## Q & A
 
 ### 如何在同一设备配置同一交易所的多个账号？
+
 1. 为每个账户创建一个 .env 文件，如 account_1.env, account_2.env
 2. 在每个账户的 .env 文件中设置 `ACCOUNT_NAME=`, 如`ACCOUNT_NAME=MAIN`。
-2. 在每个文件中配置好每个账户的API key或是密匙
-3. 通过更改命令行中的 `--env-file` 参数来开始不同的账户，如 `python runbot.py --env-file account_1.env [其他参数...]`
+3. 在每个文件中配置好每个账户的 API key 或是密匙
+4. 通过更改命令行中的 `--env-file` 参数来开始不同的账户，如 `python runbot.py --env-file account_1.env [其他参数...]`
 
 ### 如何在同一设备配置不同交易所的多个账号？
+
 将不同交易所的账号都配置在同一 `.env` 文件后，通过更改命令行中的 `--exchange` 参数来开始不同的交易所，如 `python runbot.py --exchange backpack [其他参数...]`
 
 ### 如何在同一设备用同一账号配置同一交易所的多个合约？
+
 将账号配置在 `.env` 文件后，通过更改命令行中的 `--ticker` 参数来开始不同的合约，如 `python runbot.py --ticker ETH [其他参数...]`
 
 ## 贡献
@@ -223,7 +252,9 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 
 ## 许可证
 
-本项目采用 MIT 许可证 - 详情请参阅[LICENSE](LICENSE)文件。
+本项目采用非商业许可证 - 详情请参阅[LICENSE](LICENSE)文件。
+
+**重要提醒**：本软件仅供个人学习和研究使用，严禁用于任何商业用途。如需商业使用，请联系作者获取商业许可证。
 
 ## 免责声明
 

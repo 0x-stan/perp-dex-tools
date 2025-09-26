@@ -1,4 +1,5 @@
 ##### Follow Me - **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
+
 ## Multi-Exchange Trading Bot
 
 A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, and Aster. The bot implements an automated strategy that places orders and automatically closes them at a profit.
@@ -6,15 +7,19 @@ A modular trading bot that supports multiple exchanges including EdgeX, Backpack
 ## Referral Links (Enjoy fee rebates and benefits)
 
 #### EdgeX: [https://pro.edgex.exchange/referral/QUANT](https://pro.edgex.exchange/referral/QUANT)
+
 Instant VIP 1 Trading Fees; 10% Fee Rebate; 10% Bonus Points
 
 #### Backpack Exchange: [https://backpack.exchange/join/quant](https://backpack.exchange/join/quant)
+
 You will get 30% fee rebates on all your trading fees
 
 #### Paradex Exchange: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
+
 You will get 10% taker fee discount rebates and potential future benefits
 
 #### Aster Exchange: [https://www.asterdex.com/zh-CN/referral/5191B1](https://www.asterdex.com/zh-CN/referral/5191B1)
+
 You will get 10% fee rebates and potential points boost
 
 ## Installation
@@ -64,6 +69,7 @@ The bot implements a simple trading strategy:
 7. **Stop Trading Control**: Controls the price conditions for stopping transactions through the `--stop-price` parameter
 
 #### ⚙️ Key Parameters
+
 - **quantity**: Trading amount per order
 - **take-profit**: Take-profit percentage (e.g., 0.02 means 0.02%)
 - **max-orders**: Maximum concurrent active orders (risk control)
@@ -81,11 +87,13 @@ The `--grid-step` parameter controls the minimum distance between new order clos
 - **Purpose**: Prevents close orders from being too dense, improving fill probability and risk management
 
 For example, when Long and `--grid-step 0.5`:
+
 - If existing close order price is 2000 USDT
 - New order close price must be lower than 1990 USDT (2000 × (1 - 0.5%))
 - This prevents close orders from being too close together, improving overall strategy effectiveness
 
 #### 📊 Trading Flow Example
+
 Assuming current ETH price is $2000 with take-profit set to 0.02%:
 
 1. **Open Position**: Places buy order at $2000.40 (slightly above market price)
@@ -95,6 +103,7 @@ Assuming current ETH price is $2000 with take-profit set to 0.02%:
 5. **Repeat**: Continues to the next trading cycle
 
 #### 🛡️ Risk Management
+
 - **Order Limits**: Limits maximum concurrent orders via `max-orders`
 - **Grid Control**: Ensures reasonable spacing between close orders via `grid-step`
 - **Order Frequency Control**: Controls order timing via `wait-time` to prevent being trapped in short periods
@@ -116,7 +125,6 @@ ETH (with grid step control):
 ```bash
 python runbot.py --exchange edgex --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --grid-step 0.5
 ```
-
 
 ETH (with stop price control):
 
@@ -144,11 +152,26 @@ ETH Perpetual (with grid step control):
 python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --grid-step 0.3
 ```
 
+### Aster Exchange:
+
+ETH:
+
+```bash
+python runbot.py --exchange aster --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450
+```
+
+ETH (with Boost mode enabled):
+
+```bash
+python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --wait-time 450 --aster-boost
+```
+
 ## Configuration
 
 ### Environment Variables
 
 #### General Configuration
+
 - `ACCOUNT_NAME`: The name of the current account in the environment variable, used for distinguishing between multiple account logs, customizable, not mandatory
 
 #### EdgeX Configuration
@@ -186,7 +209,7 @@ python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0
 - `--grid-step`: Minimum distance in percentage to the next close order price (default: -100, means no restriction)
 - `--stop-price`: For BUY direction: exit when price >= stop-price. For SELL direction: exit when price <= stop-price. (Default: -1, no price-based termination)
 - `--pause-price`: For BUY direction: pause when price >= pause-price. For SELL direction: pause when price <= pause-price. (Default: -1, no price-based pausing)
-
+- `--aster-boost`: Enable Boost mode for volume boosting on Aster exchange (only available for aster exchange)
 
 ## Logging
 
@@ -200,14 +223,17 @@ The bot provides comprehensive logging:
 ## Q & A
 
 ### How to configure multiple accounts for the same exchange on the same device?
+
 1. Create a .env file for each account, such as account_1.env, account_2.env
 2. Configure the keys for each account in each file
 3. Use different `--env-file` parameters in the command line to start different accounts, such as `python runbot.py --env-file account_1.env [other parameters...]`
 
 ### How to configure multiple accounts for different exchanges on the same device?
+
 Configure all different exchange accounts in the same `.env` file, then use different `--exchange` parameters in the command line to start different exchanges, such as `python runbot.py --exchange backpack [other parameters...]`
 
 ### How to configure multiple contracts for the same account and exchange on the same device?
+
 Configure the account in the `.env` file, then use different `--ticker` parameters in the command line to start different contracts, such as `python runbot.py --ticker ETH [other parameters...]`
 
 ## Contributing
@@ -220,7 +246,9 @@ Configure the account in the `.env` file, then use different `--ticker` paramete
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under a Non-Commercial License - see the [LICENSE](LICENSE) file for details.
+
+**Important Notice**: This software is for personal learning and research purposes only. Commercial use is strictly prohibited. For commercial use, please contact the author for a commercial license.
 
 ## Disclaimer
 
