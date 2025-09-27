@@ -2,7 +2,7 @@
 
 ## Multi-Exchange Trading Bot
 
-A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, and Aster. The bot implements an automated strategy that places orders and automatically closes them at a profit.
+A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, Aster, and Lighter. The bot implements an automated strategy that places orders and automatically closes them at a profit.
 
 ## Referral Links (Enjoy fee rebates and benefits)
 
@@ -12,7 +12,7 @@ Instant VIP 1 Trading Fees; 10% Fee Rebate; 10% Bonus Points
 
 #### Backpack Exchange: [https://backpack.exchange/join/quant](https://backpack.exchange/join/quant)
 
-You will get 30% fee rebates on all your trading fees
+You will get 35% fee rebates on all your trading fees
 
 #### Paradex Exchange: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
 
@@ -20,7 +20,7 @@ You will get 10% taker fee discount rebates and potential future benefits
 
 #### Aster Exchange: [https://www.asterdex.com/zh-CN/referral/5191B1](https://www.asterdex.com/zh-CN/referral/5191B1)
 
-You will get 10% fee rebates and potential points boost
+You will get 30% fee rebates and points boost
 
 ## Installation
 
@@ -33,9 +33,20 @@ You will get 10% fee rebates and potential points boost
 
 2. **Create and activate virtual environment**:
 
+   First, make sure you are not currently in any virtual environment:
+   ```bash
+   deactivate
+   ```
+
+   Create virtual environment:
+
    ```bash
    python3 -m venv env
-   source env/bin/activate  # On Windows: env\Scripts\activate
+   ```
+
+   Activate virtual environment (you need to activate the virtual environment every time you use the script):
+   ```bash
+   source env/bin/activate  # Windows: env\Scripts\activate
    ```
 
 3. **Install dependencies**:
@@ -44,8 +55,25 @@ You will get 10% fee rebates and potential points boost
    pip install -r requirements.txt
    ```
 
-   **Paradex Users**: If you want to use Paradex exchange, you need to install additional Paradex-specific dependencies:
+   **Paradex Users**: If you want to use Paradex exchange, you need to create an additional virtual environment and install Paradex-specific dependencies:
 
+   First, make sure you are not currently in any virtual environment:
+   ```bash
+   deactivate
+   ```
+
+   Create a dedicated virtual environment for Paradex (named para_env):
+
+   ```bash
+   python3 -m venv para_env
+   ```
+
+   Activate virtual environment (you need to activate the virtual environment every time you use the script):
+   ```bash
+   source para_env/bin/activate  # Windows: para_env\Scripts\activate
+   ```
+
+   Install Paradex dependencies
    ```bash
    pip install -r para_requirements.txt
    ```
@@ -196,9 +224,26 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 - `ASTER_API_KEY`: Your Aster API Key
 - `ASTER_SECRET_KEY`: Your Aster API Secret
 
+#### Lighter Configuration
+
+- `API_KEY_PRIVATE_KEY`: Your Lighter API private key
+- `LIGHTER_ACCOUNT_INDEX`: Lighter account index
+- `LIGHTER_API_KEY_INDEX`: Lighter API key index
+
+**How to get LIGHTER_ACCOUNT_INDEX**:
+
+1. Add your wallet address to the end of the following URL:
+   ```
+   https://mainnet.zklighter.elliot.ai/api/v1/account?by=l1_address&value=
+   ```
+
+2. Open this URL in your browser
+
+3. Search for "account_index" in the results - if you have subaccounts, there will be multiple account_index values. The shorter one is your main account, and the longer ones are your subaccounts.
+
 ### Command Line Arguments
 
-- `--exchange`: Exchange to use: 'edgex', 'backpack', 'paradex', or 'aster' (default: edgex)
+- `--exchange`: Exchange to use: 'edgex', 'backpack', 'paradex', 'aster', or 'lighter' (default: edgex)
 - `--ticker`: Base asset symbol (e.g., ETH, BTC, SOL). Contract ID is auto-resolved.
 - `--quantity`: Order quantity (default: 0.1)
 - `--take-profit`: Take profit percent (e.g., 0.02 means 0.02%)
@@ -210,6 +255,7 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 - `--stop-price`: For BUY direction: exit when price >= stop-price. For SELL direction: exit when price <= stop-price. (Default: -1, no price-based termination)
 - `--pause-price`: For BUY direction: pause when price >= pause-price. For SELL direction: pause when price <= pause-price. (Default: -1, no price-based pausing)
 - `--aster-boost`: Enable Boost mode for volume boosting on Aster exchange (only available for aster exchange)
+  `--aster-boost` trading logic: Place maker orders to open positions, immediately close with taker orders after fill, repeat this cycle. Wear consists of one maker order, one taker order fees, and slippage.
 
 ## Logging
 
@@ -225,8 +271,9 @@ The bot provides comprehensive logging:
 ### How to configure multiple accounts for the same exchange on the same device?
 
 1. Create a .env file for each account, such as account_1.env, account_2.env
-2. Configure the keys for each account in each file
-3. Use different `--env-file` parameters in the command line to start different accounts, such as `python runbot.py --env-file account_1.env [other parameters...]`
+2. Set `ACCOUNT_NAME=` in each account's .env file, such as `ACCOUNT_NAME=MAIN`.
+3. Configure the API keys or secrets for each account in each file
+4. Use different `--env-file` parameters in the command line to start different accounts, such as `python runbot.py --env-file account_1.env [other parameters...]`
 
 ### How to configure multiple accounts for different exchanges on the same device?
 

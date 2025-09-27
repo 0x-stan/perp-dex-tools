@@ -200,7 +200,6 @@ class TradingBot:
             )
 
             if not order_result.success:
-                self.logger.log(f"Failed to place order: {order_result.error_message}", "ERROR")
                 return False
 
             if order_result.status == 'FILLED':
@@ -249,6 +248,7 @@ class TradingBot:
 
                 if not close_order_result.success:
                     self.logger.log(f"[CLOSE] Failed to place close order: {close_order_result.error_message}", "ERROR")
+                    raise Exception(f"[CLOSE] Failed to place close order: {close_order_result.error_message}")
 
                 return True
 

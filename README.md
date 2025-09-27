@@ -6,7 +6,7 @@
 
 ## 自动交易机器人
 
-一个支持多个交易所（目前包括 EdgeX, Backpack, Paradex, Aster）的模块化交易机器人。该机器人实现了自动下单并在盈利时自动平仓的策略，主要目的是取得高交易量。
+一个支持多个交易所（目前包括 EdgeX, Backpack, Paradex, Aster, Lighter）的模块化交易机器人。该机器人实现了自动下单并在盈利时自动平仓的策略，主要目的是取得高交易量。
 
 ## 邀请链接 (获得返佣以及福利)
 
@@ -16,7 +16,7 @@
 
 #### Backpack 交易所: [https://backpack.exchange/join/quant](https://backpack.exchange/join/quant)
 
-使用我的推荐链接获得 30% 手续费返佣
+使用我的推荐链接获得 35% 手续费返佣
 
 #### Paradex 交易所: [https://app.paradex.trade/r/quant](https://app.paradex.trade/r/quant)
 
@@ -37,19 +37,56 @@
 
 2. **创建并激活虚拟环境**：
 
+   首先确保你目前不在任何虚拟环境中：
+   ```bash
+   deactivate
+   ```
+
+   创建虚拟环境：
+
    ```bash
    python3 -m venv env
+   ```
+
+   激活虚拟环境（每次使用脚本时，都需要激活虚拟环境）：
+   ```bash
    source env/bin/activate  # Windows: env\Scripts\activate
    ```
 
 3. **安装依赖**：
+   首先确保你目前不在任何虚拟环境中：
+   ```bash
+   deactivate
+   ```
+
+   激活虚拟环境（每次使用脚本时，都需要激活虚拟环境）：
+   ```bash
+   source env/bin/activate  # Windows: env\Scripts\activate
+   ```
 
    ```bash
    pip install -r requirements.txt
    ```
 
-   **Paradex 用户**：如果您想使用 Paradex 交易所，需要额外安装 Paradex 专用依赖：
+   **Paradex 用户**：如果您想使用 Paradex 交易所，需要额外创建一个虚拟环境并安装 Paradex 专用依赖：
 
+   首先确保你目前不在任何虚拟环境中：
+   ```bash
+   deactivate
+   ```
+
+   创建 Paradex 专用的虚拟环境（名称为 para_env）：
+
+   ```bash
+   python3 -m venv para_env
+   ```
+
+   激活虚拟环境（每次使用脚本时，都需要激活虚拟环境）：
+   ```bash
+   source para_env/bin/activate  # Windows: para_env\Scripts\activate
+   ```
+
+   安装 Paradex 依赖
    ```bash
    pip install -r para_requirements.txt
    ```
@@ -200,9 +237,26 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 - `ASTER_API_KEY`: 您的 Aster API Key
 - `ASTER_SECRET_KEY`: 您的 Aster API Secret
 
+#### Lighter 配置
+
+- `API_KEY_PRIVATE_KEY`: Lighter API 私钥
+- `LIGHTER_ACCOUNT_INDEX`: Lighter 账户索引
+- `LIGHTER_API_KEY_INDEX`: Lighter API 密钥索引
+
+**获取 LIGHTER_ACCOUNT_INDEX 的方法**：
+
+1. 在下面的网址最后加上你的钱包地址：
+   ```
+   https://mainnet.zklighter.elliot.ai/api/v1/account?by=l1_address&value=
+   ```
+
+2. 在浏览器中打开这个网址
+
+3. 在结果中搜索 "account_index" - 如果你有子账户，会有多个 account_index，短的那个是你主账户的，长的是你的子账户。
+
 ### 命令行参数
 
-- `--exchange`: 使用的交易所：'edgex'、'backpack'、'paradex'或'aster'（默认：edgex）
+- `--exchange`: 使用的交易所：'edgex'、'backpack'、'paradex'、'aster'或'lighter'（默认：edgex）
 - `--ticker`: 标的资产符号（例如：ETH、BTC、SOL）。合约 ID 自动解析。
 - `--quantity`: 订单数量（默认：0.1）
 - `--take-profit`: 止盈百分比（例如 0.02 表示 0.02%）

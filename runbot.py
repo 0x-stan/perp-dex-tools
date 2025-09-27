@@ -5,6 +5,7 @@ Modular Trading Bot - Supports multiple exchanges
 
 import argparse
 import asyncio
+import logging
 from pathlib import Path
 import sys
 import dotenv
@@ -52,9 +53,42 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def setup_logging(log_level: str):
+    """Setup global logging configuration."""
+    # Convert string level to logging constant
+    level = getattr(logging, log_level.upper(), logging.INFO)
+
+    # Clear any existing handlers to prevent duplicates
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Configure root logger WITHOUT adding a console handler
+    # This prevents duplicate logs when TradingLogger adds its own console handler
+    root_logger.setLevel(level)
+
+    # Suppress websockets debug logs unless DEBUG level is explicitly requested
+    if log_level.upper() != 'DEBUG':
+        logging.getLogger('websockets').setLevel(logging.WARNING)
+
+    # Suppress other noisy loggers
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('requests').setLevel(logging.WARNING)
+    
+    # Suppress Lighter SDK debug logs
+    logging.getLogger('lighter').setLevel(logging.WARNING)
+    # Also suppress any root logger DEBUG messages that might be coming from Lighter
+    if log_level.upper() != 'DEBUG':
+        # Set root logger to WARNING to suppress DEBUG messages from Lighter SDK
+        root_logger.setLevel(logging.WARNING)
+
+
 async def main():
     """Main entry point."""
     args = parse_arguments()
+
+    # Setup logging first
+    setup_logging("WARNING")
 
     # Validate aster-boost can only be used with aster exchange
     if args.aster_boost and args.exchange != 'aster':

@@ -22,6 +22,11 @@ PARADEX_ENVIRONMENT=prod # or testnet
 ASTER_API_KEY=your_aster_api_key
 ASTER_SECRET_KEY=your_aster_secret_key
 
+# Lighter Configuration
+API_KEY_PRIVATE_KEY=your_api_key_private_key_here
+LIGHTER_ACCOUNT_INDEX=0
+LIGHTER_API_KEY_INDEX=0
+
 # Notification (optional)
 # guide: https://www.feishu.cn/hc/zh-CN/articles/185289387886-%E6%B6%88%E6%81%AF%E5%8A%A9%E6%89%8B-%E6%9C%BA%E5%99%A8%E4%BA%BA
 LARK_TOKEN=

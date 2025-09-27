@@ -40,6 +40,9 @@ class TradingLogger:
         logger = logging.getLogger(f"trading_bot_{self.exchange}_{self.ticker}")
         logger.setLevel(logging.INFO)
 
+        # Prevent propagation to root logger to avoid duplicate messages
+        logger.propagate = False
+
         # Prevent duplicate handlers
         if logger.handlers:
             return logger
