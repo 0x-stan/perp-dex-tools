@@ -185,8 +185,8 @@ class LighterClient(BaseExchangeClient):
         price = Decimal(order_data['price'])
         remaining_size = Decimal(order_data['remaining_base_amount'])
 
-        self.logger.log(f"[{order_type}] [{order_data['order_index']}] {order_data['status'].upper()} "
-                        f"{order_data['initial_base_amount']} @ {order_data['price']}", "INFO")
+        self.logger.log(f"[{order_type}] [{order_id}] {status} "
+                        f"{filled_size} @ {price}", "INFO")
         if order_data['client_order_index'] == self.current_order_client_id:
             current_order = OrderInfo(
                 order_id=order_id,
@@ -203,7 +203,7 @@ class LighterClient(BaseExchangeClient):
         if status in ['FILLED', 'CANCELED']:
             self.logger.log_transaction(order_id, side, filled_size, price, status)
 
-    @query_retry()
+    @query_retry(default_return=(0, 0))
     async def fetch_bbo_prices(self, contract_id: str) -> Tuple[Decimal, Decimal]:
         """Get orderbook using official SDK."""
         # Use WebSocket data if available
@@ -216,6 +216,7 @@ class LighterClient(BaseExchangeClient):
                 self.logger.log("Invalid bid/ask prices", "ERROR")
                 raise ValueError("Invalid bid/ask prices")
         else:
+            self.logger.log("Unable to get bid/ask prices from WebSocket.", "ERROR")
             raise ValueError("WebSocket not running. No bid/ask prices available")
 
         return best_bid, best_ask
@@ -280,6 +281,10 @@ class LighterClient(BaseExchangeClient):
         self.current_order_client_id = None
         # Get current market prices
         best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
+        if best_bid <= 0 or best_ask <= 0 or best_bid >= best_ask:
+            self.logger.log("Invalid bid/ask prices", "ERROR")
+            await asyncio.sleep(5)
+            return OrderResult(success=False, error_message='Invalid bid/ask prices')
 
         order_price = (best_bid + best_ask) / 2
 

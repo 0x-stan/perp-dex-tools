@@ -29,9 +29,6 @@ class LighterCustomWebSocketManager:
         self.order_book_sequence_gap = False
         self.order_book_lock = asyncio.Lock()
 
-        # Order result tracking
-        self.order_result = None
-
         # WebSocket URL
         self.ws_url = "wss://mainnet.zklighter.elliot.ai/stream"
         self.market_index = config.contract_id
@@ -234,13 +231,6 @@ class LighterCustomWebSocketManager:
     def handle_order_update(self, order_data: Dict[str, Any]):
         """Handle order update from WebSocket."""
         try:
-            if order_data["is_ask"]:
-                order_data["side"] = "SHORT"
-            else:
-                order_data["side"] = "LONG"
-
-            self.order_result = order_data
-
             # Call the order update callback if it exists
             if self.order_update_callback:
                 self.order_update_callback(order_data)
@@ -378,6 +368,8 @@ class LighterCustomWebSocketManager:
                                     if len(orders) == 1:
                                         order_data = orders[0]
                                         self.handle_order_update(order_data)
+                                    else:
+                                        self._log(f"Unexpected number of orders: {orders}", "WARNING")
                                 elif data.get("type") == "update/order_book" and not self.snapshot_loaded:
                                     # Ignore updates until we have the initial snapshot
                                     continue
