@@ -94,6 +94,9 @@
 4. **设置环境变量**：
    在项目根目录创建`.env`文件，并使用 env_example.txt 作为样本，修改为你的 api 密匙。
 
+5. **Telegram 机器人设置（可选）**：
+   如需接收交易通知，请参考 [Telegram 机器人设置指南](docs/telegram-bot-setup.md) 配置 Telegram 机器人。
+
 ## 策略概述
 
 **重要提醒**：大家一定要先理解了这个脚本的逻辑和风险，这样你就能设置更适合你自己的参数，或者你也可能觉得这不是一个好策略，根本不想用这个策略来刷交易量。我在推特也说过，我不是为了分享而写这些脚本，而是我真的在用这个脚本，所以才写了，然后才顺便分享出来。
@@ -215,6 +218,11 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 
 - `ACCOUNT_NAME`: 环境变量中当前账号的名称，用于多账号日志区分，可自定义，非必须
 
+#### Telegram 配置（可选）
+
+- `TELEGRAM_BOT_TOKEN`: Telegram 机器人令牌
+- `TELEGRAM_CHAT_ID`: Telegram 对话 ID
+
 #### EdgeX 配置
 
 - `EDGEX_ACCOUNT_ID`: 您的 EdgeX 账户 ID
@@ -265,8 +273,8 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 - `--max-orders`: 最大活跃订单数（默认：40）
 - `--wait-time`: 订单间等待时间（秒）（默认：450）
 - `--grid-step`: 与下一个平仓订单价格的最小距离百分比（默认：-100，表示无限制）
-- `--stop-price`: 当 `direction` 是 'buy' 时，price >= stop-price 停止交易并退出程序；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易）
-- `--pause-price`: 当 `direction` 是 'buy' 时，price >= pause-price 停止交易并退出程序；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易）
+- `--stop-price`: 当 `direction` 是 'buy' 时，当 price >= stop-price 时停止交易并退出程序；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易），参数的目的是防止订单被挂在”你认为的开多高点或开空低点“。
+- `--pause-price`: 当 `direction` 是 'buy' 时，当 price >= pause-price 时暂停交易，并在价格回到pause-price以下时重新开始交易；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易），参数的目的是防止订单被挂在”你认为的开多高点或开空低点“。
 - `--aster-boost`: 启用 Aster 交易所的 Boost 模式进行交易量提升（仅适用于 aster 交易所）
   `--aster-boost` 的下单逻辑：下 maker 单开仓，成交后立即用 taker 单关仓，以此循环。磨损为一单 maker，一单 taker 的手续费，以及滑点。
 

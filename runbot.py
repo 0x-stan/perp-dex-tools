@@ -91,7 +91,7 @@ async def main():
     setup_logging("WARNING")
 
     # Validate aster-boost can only be used with aster exchange
-    if args.aster_boost and args.exchange != 'aster':
+    if args.aster_boost and args.exchange.lower() != 'aster':
         print(f"Error: --aster-boost can only be used when --exchange is 'aster'. "
               f"Current exchange: {args.exchange}")
         sys.exit(1)
@@ -104,15 +104,15 @@ async def main():
 
     # Create configuration
     config = TradingConfig(
-        ticker=args.ticker,
+        ticker=args.ticker.upper(),
         contract_id='',  # will be set in the bot's run method
         tick_size=Decimal(0),
         quantity=args.quantity,
         take_profit=args.take_profit,
-        direction=args.direction,
+        direction=args.direction.lower(),
         max_orders=args.max_orders,
         wait_time=args.wait_time,
-        exchange=args.exchange,
+        exchange=args.exchange.lower(),
         grid_step=Decimal(args.grid_step),
         stop_price=Decimal(args.stop_price),
         pause_price=Decimal(args.pause_price),

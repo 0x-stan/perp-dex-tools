@@ -51,36 +51,37 @@ class BackpackWebSocketManager:
 
     async def connect(self):
         """Connect to Backpack WebSocket."""
-        try:
-            self.websocket = await websockets.connect(self.ws_url)
-            self.running = True
+        while True:
+            try:
+                self.logger.log(f"Connecting to Backpack WebSocket", "INFO")
+                self.websocket = await websockets.connect(self.ws_url)
+                self.running = True
 
-            # Subscribe to order updates for the specific symbol
-            timestamp = int(time.time() * 1000)
-            signature = self._generate_signature("subscribe", timestamp)
+                # Subscribe to order updates for the specific symbol
+                timestamp = int(time.time() * 1000)
+                signature = self._generate_signature("subscribe", timestamp)
 
-            subscribe_message = {
-                "method": "SUBSCRIBE",
-                "params": [f"account.orderUpdate.{self.symbol}"],
-                "signature": [
-                    self.public_key,
-                    signature,
-                    str(timestamp),
-                    "5000"
-                ]
-            }
+                subscribe_message = {
+                    "method": "SUBSCRIBE",
+                    "params": [f"account.orderUpdate.{self.symbol}"],
+                    "signature": [
+                        self.public_key,
+                        signature,
+                        str(timestamp),
+                        "5000"
+                    ]
+                }
 
-            await self.websocket.send(json.dumps(subscribe_message))
-            if self.logger:
-                self.logger.log(f"Subscribed to order updates for {self.symbol}", "INFO")
+                await self.websocket.send(json.dumps(subscribe_message))
+                if self.logger:
+                    self.logger.log(f"Subscribed to order updates for {self.symbol}", "INFO")
 
-            # Start listening for messages
-            await self._listen()
+                # Start listening for messages
+                await self._listen()
 
-        except Exception as e:
-            if self.logger:
-                self.logger.log(f"WebSocket connection error: {e}", "ERROR")
-            raise
+            except Exception as e:
+                if self.logger:
+                    self.logger.log(f"WebSocket connection error: {e}", "ERROR")
 
     async def _listen(self):
         """Listen for WebSocket messages."""
@@ -283,6 +284,21 @@ class BackpackClient(BaseExchangeClient):
         except Exception as e:
             self.logger.log(f"Error handling WebSocket order update: {e}", "ERROR")
 
+    async def get_order_price(self, direction: str) -> Decimal:
+        """Get the price of an order with Backpack using official SDK."""
+        best_bid, best_ask = await self.fetch_bbo_prices(self.config.contract_id)
+        if best_bid <= 0 or best_ask <= 0:
+            self.logger.log("Invalid bid/ask prices", "ERROR")
+            raise ValueError("Invalid bid/ask prices")
+
+        if direction == 'buy':
+            # For buy orders, place slightly below best ask to ensure execution
+            order_price = best_ask - self.config.tick_size
+        else:
+            # For sell orders, place slightly above best bid to ensure execution
+            order_price = best_bid + self.config.tick_size
+        return self.round_to_tick(order_price)
+
     @query_retry(default_return=(0, 0))
     async def fetch_bbo_prices(self, contract_id: str) -> Tuple[Decimal, Decimal]:
         # Get order book depth from Backpack
@@ -341,7 +357,7 @@ class BackpackClient(BaseExchangeClient):
 
             if 'code' in order_result:
                 message = order_result.get('message', 'Unknown error')
-                self.logger.log(f"[OPEN] Error placing order: {message}", "ERROR")
+                self.logger.log(f"[OPEN] Order rejected: {message}", "WARNING")
                 continue
 
             # Extract order ID from response
