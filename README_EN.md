@@ -1,5 +1,11 @@
 ##### Follow Me - **X (Twitter)**: [@yourQuantGuy](https://x.com/yourQuantGuy)
 
+## 📢 Sharing Notice
+
+**Sharing is encouraged!** If you share or modify this code, please include attribution to the original repository. We encourage the growth of the open-source community, but please maintain respect and recognition for the original author's work.
+
+---
+
 ## Multi-Exchange Trading Bot
 
 A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, Aster, and Lighter. The bot implements an automated strategy that places orders and automatically closes them at a profit.

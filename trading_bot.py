@@ -275,6 +275,11 @@ class TradingBot:
             ):
                 self.logger.log(f"[OPEN] [{order_id}] Waiting for order to be filled", "INFO")
                 await asyncio.sleep(5)
+                if self.config.exchange == "lighter":
+                    current_order_status = self.exchange_client.current_order.status
+                else:
+                    order_info = await self.exchange_client.get_order_info(order_id)
+                    current_order_status = order_info.status
                 new_order_price = await self.exchange_client.get_order_price(self.config.direction)
 
             self.order_canceled_event.clear()
@@ -565,6 +570,7 @@ class TradingBot:
             await self.graceful_shutdown("User interruption (Ctrl+C)")
         except Exception as e:
             self.logger.log(f"Critical error: {e}", "ERROR")
+            self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
             await self.graceful_shutdown(f"Critical error: {e}")
             raise
         finally:
