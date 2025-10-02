@@ -8,7 +8,7 @@
 
 ## Multi-Exchange Trading Bot
 
-A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, Aster, and Lighter. The bot implements an automated strategy that places orders and automatically closes them at a profit.
+A modular trading bot that supports multiple exchanges including EdgeX, Backpack, Paradex, Aster, Lighter, and GRVT. The bot implements an automated strategy that places orders and automatically closes them at a profit.
 
 ## Referral Links (Enjoy fee rebates and benefits)
 
@@ -28,6 +28,8 @@ You will get 10% taker fee discount rebates and potential future benefits
 
 You will get 30% fee rebates and points boost
 
+#### GRVT Exchange: [https://grvt.io/exchange/sign-up?ref=QUANT](https://grvt.io/exchange/sign-up?ref=QUANT)
+
 ## Installation
 
 1. **Clone the repository**:
@@ -40,6 +42,7 @@ You will get 30% fee rebates and points boost
 2. **Create and activate virtual environment**:
 
    First, make sure you are not currently in any virtual environment:
+
    ```bash
    deactivate
    ```
@@ -51,17 +54,20 @@ You will get 30% fee rebates and points boost
    ```
 
    Activate virtual environment (you need to activate the virtual environment every time you use the script):
+
    ```bash
    source env/bin/activate  # Windows: env\Scripts\activate
    ```
 
 3. **Install dependencies**:
    First, make sure you are not currently in any virtual environment:
+
    ```bash
    deactivate
    ```
 
    Activate virtual environment (you need to activate the virtual environment every time you use the script):
+
    ```bash
    source env/bin/activate  # Windows: env\Scripts\activate
    ```
@@ -73,6 +79,7 @@ You will get 30% fee rebates and points boost
    **Paradex Users**: If you want to use Paradex exchange, you need to create an additional virtual environment and install Paradex-specific dependencies:
 
    First, make sure you are not currently in any virtual environment:
+
    ```bash
    deactivate
    ```
@@ -84,11 +91,13 @@ You will get 30% fee rebates and points boost
    ```
 
    Activate virtual environment (you need to activate the virtual environment every time you use the script):
+
    ```bash
    source para_env/bin/activate  # Windows: para_env\Scripts\activate
    ```
 
    Install Paradex dependencies
+
    ```bash
    pip install -r para_requirements.txt
    ```
@@ -212,6 +221,14 @@ ETH (with Boost mode enabled):
 python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --aster-boost
 ```
 
+### GRVT Exchange:
+
+BTC:
+
+```bash
+python runbot.py --exchange grvt --ticker BTC --quantity 0.05 --take-profit 0.02 --max-orders 40 --wait-time 450
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -253,9 +270,16 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 - `LIGHTER_ACCOUNT_INDEX`: Lighter account index
 - `LIGHTER_API_KEY_INDEX`: Lighter API key index
 
+#### GRVT Configuration
+
+- `GRVT_TRADING_ACCOUNT_ID`: Your GRVT trading account ID
+- `GRVT_PRIVATE_KEY`: Your GRVT private key
+- `GRVT_API_KEY`: Your GRVT API key
+
 **How to get LIGHTER_ACCOUNT_INDEX**:
 
 1. Add your wallet address to the end of the following URL:
+
    ```
    https://mainnet.zklighter.elliot.ai/api/v1/account?by=l1_address&value=
    ```
@@ -266,7 +290,7 @@ python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --
 
 ### Command Line Arguments
 
-- `--exchange`: Exchange to use: 'edgex', 'backpack', 'paradex', 'aster', or 'lighter' (default: edgex)
+- `--exchange`: Exchange to use: 'edgex', 'backpack', 'paradex', 'aster', 'lighter', or 'grvt' (default: edgex)
 - `--ticker`: Base asset symbol (e.g., ETH, BTC, SOL). Contract ID is auto-resolved.
 - `--quantity`: Order quantity (default: 0.1)
 - `--take-profit`: Take profit percent (e.g., 0.02 means 0.02%)

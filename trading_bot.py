@@ -515,7 +515,7 @@ class TradingBot:
             self.loop = asyncio.get_running_loop()
             # Connect to exchange
             await self.exchange_client.connect()
-            
+
             # wait for connection to establish
             await asyncio.sleep(5)
 

@@ -74,7 +74,7 @@ def setup_logging(log_level: str):
     # Suppress other noisy loggers
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('requests').setLevel(logging.WARNING)
-    
+
     # Suppress Lighter SDK debug logs
     logging.getLogger('lighter').setLevel(logging.WARNING)
     # Also suppress any root logger DEBUG messages that might be coming from Lighter
