@@ -31,7 +31,7 @@ class TradingConfig:
     grid_step: Decimal
     stop_price: Decimal
     pause_price: Decimal
-    aster_boost: bool
+    boost_mode: bool
 
     @property
     def close_order_side(self) -> str:
@@ -225,7 +225,7 @@ class TradingBot:
         filled_price = order_result.price
 
         if self.order_filled_event.is_set() or order_result.status == 'FILLED':
-            if self.config.aster_boost:
+            if self.config.boost_mode:
                 close_order_result = await self.exchange_client.place_market_order(
                     self.config.contract_id,
                     self.config.quantity,
@@ -246,6 +246,8 @@ class TradingBot:
                     close_price,
                     close_side
                 )
+                if self.config.exchange == "lighter":
+                    await asyncio.sleep(1)
 
                 if not close_order_result.success:
                     self.logger.log(f"[CLOSE] Failed to place close order: {close_order_result.error_message}", "ERROR")
@@ -322,7 +324,7 @@ class TradingBot:
 
             if self.order_filled_amount > 0:
                 close_side = self.config.close_order_side
-                if self.config.aster_boost:
+                if self.config.boost_mode:
                     close_order_result = await self.exchange_client.place_close_order(
                         self.config.contract_id,
                         self.order_filled_amount,
@@ -342,18 +344,7 @@ class TradingBot:
                         close_side
                     )
                     if self.config.exchange == "lighter":
-                        start_time = time.time()
-                        while time.time() - start_time < 5:
-                            await asyncio.sleep(1)
-                            if self.exchange_client.current_order is not None:
-                                if self.exchange_client.current_order.status == 'CANCELED-SELF-TRADE':
-                                    close_order_result = await self.exchange_client.place_close_order(
-                                        self.config.contract_id,
-                                        self.order_filled_amount,
-                                        close_price,
-                                        close_side
-                                    )
-                                    start_time = time.time()
+                        await asyncio.sleep(1)
 
                 self.last_open_order_time = time.time()
                 if not close_order_result.success:
@@ -508,7 +499,7 @@ class TradingBot:
             self.logger.log(f"Grid Step: {self.config.grid_step}%", "INFO")
             self.logger.log(f"Stop Price: {self.config.stop_price}", "INFO")
             self.logger.log(f"Pause Price: {self.config.pause_price}", "INFO")
-            self.logger.log(f"Aster Boost: {self.config.aster_boost}", "INFO")
+            self.logger.log(f"Boost Mode: {self.config.boost_mode}", "INFO")
             self.logger.log("=============================", "INFO")
 
             # Capture the running event loop for thread-safe callbacks

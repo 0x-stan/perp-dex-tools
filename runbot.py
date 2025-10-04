@@ -47,7 +47,7 @@ def parse_arguments():
     parser.add_argument('--pause-price', type=Decimal, default=-1,
                         help='Pause trading and wait. Buy: pause if price >= pause-price.'
                         'Sell: pause if price <= pause-price. (default: -1, no pause)')
-    parser.add_argument('--aster-boost', action='store_true',
+    parser.add_argument('--boost', action='store_true',
                         help='Use the Boost mode for volume boosting')
 
     return parser.parse_args()
@@ -90,9 +90,9 @@ async def main():
     # Setup logging first
     setup_logging("WARNING")
 
-    # Validate aster-boost can only be used with aster exchange
-    if args.aster_boost and args.exchange.lower() != 'aster':
-        print(f"Error: --aster-boost can only be used when --exchange is 'aster'. "
+    # Validate boost-mode can only be used with aster and backpack exchange
+    if args.boost and args.exchange.lower() != 'aster' and args.exchange.lower() != 'backpack':
+        print(f"Error: --boost can only be used when --exchange is 'aster' or 'backpack'. "
               f"Current exchange: {args.exchange}")
         sys.exit(1)
 
@@ -116,7 +116,7 @@ async def main():
         grid_step=Decimal(args.grid_step),
         stop_price=Decimal(args.stop_price),
         pause_price=Decimal(args.pause_price),
-        aster_boost=args.aster_boost
+        boost_mode=args.boost
     )
 
     # Create and run the bot

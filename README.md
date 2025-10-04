@@ -228,6 +228,12 @@ ETH 永续合约（带网格步长控制）：
 python runbot.py --exchange backpack --ticker ETH --quantity 0.1 --take-profit 0.02 --max-orders 40 --wait-time 450 --grid-step 0.3
 ```
 
+ETH 永续合约（启用 Boost 模式）：
+
+```bash
+python runbot.py --exchange backpack --ticker ETH --direction buy --quantity 0.1 --boost
+```
+
 ### Aster 交易所：
 
 ETH：
@@ -239,7 +245,7 @@ python runbot.py --exchange aster --ticker ETH --quantity 0.1 --take-profit 0.02
 ETH（启用 Boost 模式）：
 
 ```bash
-python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --aster-boost
+python runbot.py --exchange aster --ticker ETH --direction buy --quantity 0.1 --boost
 ```
 
 ### GRVT 交易所：
@@ -322,8 +328,8 @@ python runbot.py --exchange grvt --ticker BTC --quantity 0.05 --take-profit 0.02
 - `--grid-step`: 与下一个平仓订单价格的最小距离百分比（默认：-100，表示无限制）
 - `--stop-price`: 当 `direction` 是 'buy' 时，当 price >= stop-price 时停止交易并退出程序；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易），参数的目的是防止订单被挂在”你认为的开多高点或开空低点“。
 - `--pause-price`: 当 `direction` 是 'buy' 时，当 price >= pause-price 时暂停交易，并在价格回到 pause-price 以下时重新开始交易；'sell' 逻辑相反（默认：-1，表示不会因为价格原因停止交易），参数的目的是防止订单被挂在”你认为的开多高点或开空低点“。
-- `--aster-boost`: 启用 Aster 交易所的 Boost 模式进行交易量提升（仅适用于 aster 交易所）
-  `--aster-boost` 的下单逻辑：下 maker 单开仓，成交后立即用 taker 单关仓，以此循环。磨损为一单 maker，一单 taker 的手续费，以及滑点。
+- `--boost`: 启用 Boost 模式进行交易量提升（仅适用于 aster 和 backpack 交易所）
+  Boost 模式的下单逻辑：下 maker 单开仓，成交后立即用 taker 单关仓，以此循环。磨损为一单 maker，一单 taker 的手续费，以及滑点。
 
 ## 日志记录
 

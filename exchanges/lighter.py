@@ -332,7 +332,6 @@ class LighterClient(BaseExchangeClient):
             status=self.current_order.status
         )
 
-
     async def _get_active_close_orders(self, contract_id: str) -> int:
         """Get active close orders for a contract using official SDK."""
         active_orders = await self.get_active_orders(contract_id)
@@ -371,6 +370,15 @@ class LighterClient(BaseExchangeClient):
             raise ValueError("Invalid bid/ask prices")
 
         order_price = (best_bid + best_ask) / 2
+
+        active_orders = await self.get_active_orders(self.config.contract_id)
+        close_orders = [order for order in active_orders if order.side == self.config.close_order_side]
+        for order in close_orders:
+            if side == 'buy':
+                order_price = min(order_price, order.price - self.config.tick_size)
+            else:
+                order_price = max(order_price, order.price + self.config.tick_size)
+
         return order_price
 
     async def cancel_order(self, order_id: str) -> OrderResult:
