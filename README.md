@@ -34,13 +34,15 @@
 
 #### GRVT 交易所: [https://grvt.io/exchange/sign-up?ref=QUANT](https://grvt.io/exchange/sign-up?ref=QUANT)
 
+获得 1.3x 全网最高的积分加成，未来的手续费返佣（官方预计 10 月中上线），以及即将开始的专属交易竞赛
+
 ## 安装
 
 Python 版本要求（最佳选项是 Python 3.10 - 3.12）：
- - grvt要求python版本在 3.10 及以上
- - Paradex要求python版本在 3.9 - 3.12
- - 其他交易所需要python版本在 3.8 及以上
 
+- grvt 要求 python 版本在 3.10 及以上
+- Paradex 要求 python 版本在 3.9 - 3.12
+- 其他交易所需要 python 版本在 3.8 及以上
 
 1. **克隆仓库**：
 
@@ -86,7 +88,7 @@ Python 版本要求（最佳选项是 Python 3.10 - 3.12）：
    pip install -r requirements.txt
    ```
 
-   **grvt 用户**：如果您想使用 grvt 交易所，需要额外安装grvt专用依赖：
+   **grvt 用户**：如果您想使用 grvt 交易所，需要额外安装 grvt 专用依赖：
    激活虚拟环境（每次使用脚本时，都需要激活虚拟环境）：
 
    ```bash
@@ -147,6 +149,7 @@ Python 版本要求（最佳选项是 Python 3.10 - 3.12）：
 #### ⚙️ 关键参数
 
 - **quantity**: 每笔订单的交易数量
+- **direction**: 脚本交易的方向，buy 表示看多，sell 表示看空
 - **take-profit**: 止盈百分比（如 0.02 表示 0.02%）
 - **max-orders**: 最大同时活跃订单数（风险控制）
 - **wait-time**: 订单间等待时间（避免过于频繁交易）
