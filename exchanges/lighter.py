@@ -30,7 +30,7 @@ if root_logger.level == logging.DEBUG:
 class LighterClient(BaseExchangeClient):
     """Lighter exchange client implementation."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], logger: Optional[TradingLogger]):
         """Initialize Lighter client."""
         super().__init__(config)
 
@@ -44,7 +44,7 @@ class LighterClient(BaseExchangeClient):
             raise ValueError("API_KEY_PRIVATE_KEY must be set in environment variables")
 
         # Initialize logger
-        self.logger = TradingLogger(exchange="lighter", ticker=self.config.ticker, log_to_console=False)
+        self.logger = logger or TradingLogger(exchange="lighter", ticker=self.config.ticker, log_to_console=False)
         self._order_update_handler = None
 
         # Initialize Lighter client (will be done in connect)
@@ -248,6 +248,26 @@ class LighterClient(BaseExchangeClient):
             raise ValueError("WebSocket not running. No bid/ask prices available")
 
         return best_bid, best_ask
+    
+    @query_retry(default_return=(0, 0))
+    async def fetch_bbo_prices_quanities(self, contract_id: str) -> Tuple[Decimal, Decimal, Decimal, Decimal]:
+        """Get orderbook using official SDK."""
+        # Use WebSocket data if available
+        if (hasattr(self, 'ws_manager') and
+                self.ws_manager.best_bid and self.ws_manager.best_ask):
+            best_bid = Decimal(str(self.ws_manager.best_bid))
+            best_ask = Decimal(str(self.ws_manager.best_ask))
+            best_bid_qty = Decimal(str(self.ws_manager.best_bid_qty))
+            best_ask_qty = Decimal(str(self.ws_manager.best_ask_qty))
+
+            if best_bid <= 0 or best_ask <= 0 or best_bid >= best_ask:
+                self.logger.log("Invalid bid/ask prices", "ERROR")
+                raise ValueError("Invalid bid/ask prices")
+        else:
+            self.logger.log("Unable to get bid/ask prices from WebSocket.", "ERROR")
+            raise ValueError("WebSocket not running. No bid/ask prices available")
+
+        return best_bid, best_ask, best_bid_qty, best_ask_qty
 
     async def _submit_order_with_retry(self, order_params: Dict[str, Any]) -> OrderResult:
         """Submit an order with Lighter using official SDK."""
@@ -296,6 +316,41 @@ class LighterClient(BaseExchangeClient):
             'order_type': self.lighter_client.ORDER_TYPE_LIMIT,
             'time_in_force': self.lighter_client.ORDER_TIME_IN_FORCE_GOOD_TILL_TIME,
             'reduce_only': False,
+            'trigger_price': 0,
+        }
+
+        order_result = await self._submit_order_with_retry(order_params)
+        return order_result
+    
+    async def place_market_order(self, contract_id: str, quantity: Decimal, price: Decimal,
+                                side: str, reduce_only: bool = False) -> OrderResult:
+        """Place a post only order with Lighter using official SDK."""
+        # Ensure client is initialized
+        if self.lighter_client is None:
+            await self._initialize_lighter_client()
+
+        # Determine order side and price
+        if side.lower() == 'buy':
+            is_ask = False
+        elif side.lower() == 'sell':
+            is_ask = True
+        else:
+            raise Exception(f"Invalid side: {side}")
+
+        # Generate unique client order index
+        client_order_index = int(time.time() * 1000) % 1000000  # Simple unique ID
+        self.current_order_client_id = client_order_index
+
+        # Create order parameters
+        order_params = {
+            'market_index': self.config.contract_id,
+            'client_order_index': client_order_index,
+            'base_amount': int(quantity * self.base_amount_multiplier),
+            'price': int(price * self.price_multiplier),
+            'is_ask': is_ask,
+            'order_type': self.lighter_client.ORDER_TYPE_MARKET,
+            'time_in_force': self.lighter_client.ORDER_TIME_IN_FORCE_GOOD_TILL_TIME,
+            'reduce_only': reduce_only,
             'trigger_price': 0,
         }
 

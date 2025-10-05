@@ -2,7 +2,9 @@
 Exchange factory for creating exchange clients dynamically.
 """
 
-from typing import Dict, Any, Type
+from typing import Dict, Any, Optional, Type
+
+from helpers.logger import TradingLogger
 from .base import BaseExchangeClient
 
 
@@ -16,10 +18,11 @@ class ExchangeFactory:
         'aster': 'exchanges.aster.AsterClient',
         'lighter': 'exchanges.lighter.LighterClient',
         'grvt': 'exchanges.grvt.GrvtClient',
+        'binance': 'exchanges.binance.BinanceClient',
     }
 
     @classmethod
-    def create_exchange(cls, exchange_name: str, config: Dict[str, Any]) -> BaseExchangeClient:
+    def create_exchange(cls, exchange_name: str, config: Dict[str, Any], logger: Optional[TradingLogger] = None) -> BaseExchangeClient:
         """Create an exchange client instance.
 
         Args:
@@ -41,7 +44,7 @@ class ExchangeFactory:
         # Dynamically import the exchange class only when needed
         exchange_class_path = cls._registered_exchanges[exchange_name]
         exchange_class = cls._import_exchange_class(exchange_class_path)
-        return exchange_class(config)
+        return exchange_class(config, logger)
 
     @classmethod
     def _import_exchange_class(cls, class_path: str) -> Type[BaseExchangeClient]:

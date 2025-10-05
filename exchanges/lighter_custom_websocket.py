@@ -24,6 +24,8 @@ class LighterCustomWebSocketManager:
         self.order_book = {"bids": {}, "asks": {}}
         self.best_bid = None
         self.best_ask = None
+        self.best_bid_qty = None
+        self.best_sdk_qty = None
         self.snapshot_loaded = False
         self.order_book_offset = None
         self.order_book_sequence_gap = False
@@ -360,8 +362,10 @@ class LighterCustomWebSocketManager:
                                     # Update global variables
                                     if best_bid_price is not None:
                                         self.best_bid = best_bid_price
+                                        self.best_bid_qty = best_bid_size
                                     if best_ask_price is not None:
                                         self.best_ask = best_ask_price
+                                        self.best_ask_qty = best_ask_size
 
                                 elif data.get("type") == "ping":
                                     # Respond to ping with pong
