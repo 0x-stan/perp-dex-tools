@@ -192,6 +192,20 @@ class LighterClient(BaseExchangeClient):
             price = Decimal(order_data['price'])
             remaining_size = Decimal(order_data['remaining_base_amount'])
 
+            # handle order faild
+            if status in ["CANCELED-TOO-MUCH-SLIPPAGE"]:
+                self.current_order = OrderInfo(
+                    order_id=order_id,
+                    side=side,
+                    size=size,
+                    price=price,
+                    status=status,
+                    filled_size=filled_size,
+                    remaining_size=remaining_size,
+                    cancel_reason=status
+                )
+                return
+
             if order_id in self.orders_cache.keys():
                 if (self.orders_cache[order_id]['status'] == 'OPEN' and
                         status == 'OPEN' and
@@ -338,7 +352,7 @@ class LighterClient(BaseExchangeClient):
 
         # Get current market price for market orders
         best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
-        market_price = best_ask - self.config.tick_size if is_ask else best_bid + self.config.tick_size
+        market_price = best_ask - self.config.max_slippage if is_ask else best_bid + self.config.max_slippage
 
         # Generate unique client order index
         client_order_index = int(time.time() * 1000) % 1000000  # Simple unique ID
@@ -349,16 +363,42 @@ class LighterClient(BaseExchangeClient):
             'market_index': self.config.contract_id,
             'client_order_index': client_order_index,
             'base_amount': int(quantity * self.base_amount_multiplier),
-            'price': int(market_price * self.price_multiplier),
+            'avg_execution_price': int(market_price * self.price_multiplier),
             'is_ask': is_ask,
-            'order_type': self.lighter_client.ORDER_TYPE_MARKET,
-            'time_in_force': self.lighter_client.ORDER_TIME_IN_FORCE_GOOD_TILL_TIME,
-            'reduce_only': reduce_only,
-            'trigger_price': 0,
         }
 
-        order_result = await self._submit_order_with_retry(order_params)
-        return order_result
+        # Create order using official SDK
+        create_order, tx_hash, error = await self.lighter_client.create_market_order(**order_params)
+        if error is not None:
+            return OrderResult(
+                success=False, order_id=str(order_params['client_order_index']),
+                error_message=f"Order creation error: {error}")
+
+        # While waiting for order to be filled
+        order_status = 'OPEN'
+        start_time = time.time()
+        while time.time() - start_time < 3 and order_status not in ['FILLED', 'CANCELED-TOO-MUCH-SLIPPAGE']:
+            await asyncio.sleep(0.1)
+            if self.current_order is not None:
+                order_status = self.current_order.status
+        if self.current_order is not None:
+            return OrderResult(
+                success=order_status == 'FILLED',
+                order_id=str(order_params['client_order_index']),
+                side=side,
+                size=self.current_order.size,
+                price=market_price,
+                status=self.current_order.status
+            )
+        else:
+            return OrderResult(
+                success=False,
+                order_id=str(order_params['client_order_index']),
+                side=side,
+                size=Decimal("0"),
+                price=market_price,
+                status="FAILD"
+            )
 
     async def place_open_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
         """Place an open order with Lighter using official SDK."""
@@ -568,6 +608,21 @@ class LighterClient(BaseExchangeClient):
         for position in positions:
             if position.market_id == self.config.contract_id:
                 return Decimal(position.position)
+
+        return Decimal(0)
+    
+    async def get_account_positions_with_sign(self) -> Decimal:
+        """Get account positions using official SDK."""
+        # Get account info which includes positions
+        positions = await self._fetch_positions_with_retry()
+
+        # Find position for current market
+        for position in positions:
+            if position.market_id == self.config.contract_id:
+                if position.sign == -1:
+                    return -Decimal(position.position)
+                else:
+                    return Decimal(position.position)
 
         return Decimal(0)
 

@@ -28,6 +28,7 @@ class BinanceWebSocketManager:
         self.logger = None
         self.listen_key = None
         self.client = UMFutures(key=api_key, secret=api_secret)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def _get_listen_key(self) -> str:
         """Get or refresh the listen key."""
@@ -48,6 +49,10 @@ class BinanceWebSocketManager:
         """Connect to Binance WebSocket."""
         try:
             self.logger.log(f"Connecting to Binance WebSocket", "INFO")
+
+            self._loop = asyncio.get_running_loop()
+            if not self._loop:
+                raise ValueError("BinanceWebSocketManager Error: no loop")
             
             # Get listen key
             listen_key = self._get_listen_key()
@@ -95,8 +100,14 @@ class BinanceWebSocketManager:
             if order.get('s') != self.symbol:
                 return
             
-            # Process the order update
-            asyncio.create_task(self._handle_order_update(order))
+            # Process the order update - use thread-safe method
+            try:
+                asyncio.run_coroutine_threadsafe(self._handle_order_update(order), self._loop)
+            except RuntimeError:
+                # If no event loop, process synchronously
+                # This is a fallback - ideally we should always have a loop
+                if self.logger:
+                    self.logger.log("No event loop available for order update", "WARNING")
             
         except json.JSONDecodeError as e:
             if self.logger:
@@ -526,6 +537,24 @@ class BinanceClient(BaseExchangeClient):
             for position in positions_data:
                 if position.get('symbol', '') == self.config.contract_id:
                     position_amt = abs(Decimal(position.get('positionAmt', 0)))
+                    break
+                    
+            return position_amt
+
+        except Exception as e:
+            self.logger.log(f"Error getting account positions: {e}", "ERROR")
+            return Decimal(0)
+    
+    @query_retry(default_return=0)
+    async def get_account_positions_with_sign(self) -> Decimal:
+        """Get account positions."""
+        try:
+            positions_data = self.client.get_position_risk()
+            position_amt = 0
+            
+            for position in positions_data:
+                if position.get('symbol', '') == self.config.contract_id:
+                    position_amt = Decimal(position.get('positionAmt', 0))
                     break
                     
             return position_amt

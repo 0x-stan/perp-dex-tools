@@ -35,6 +35,8 @@ class PerpArbConfig:
     min_order_size: Decimal        # 下单的最小数量
     tick_size_leg1: Decimal = Decimal('0')
     tick_size_leg2: Decimal = Decimal('0')
+    max_slippage_leg1: Decimal = Decimal('0.50')
+    max_slippage_leg2: Decimal = Decimal('0.50')
     close_order_side: str = "" 
 
 
@@ -101,7 +103,8 @@ class PerpArbBot:
                 'contract_id': self.config.contract_id_leg1,
                 'quantity': self.config.max_quantity,
                 'tick_size': self.config.tick_size_leg1,
-                'direction': 'buy',  # Will be overridden per trade
+                'max_slippage': self.config.max_slippage_leg1,
+                'close_order_side': 'buy',  # Will be overridden per trade
             }
             
             self.leg1_client = ExchangeFactory.create_exchange(
@@ -116,7 +119,8 @@ class PerpArbBot:
                 'contract_id': self.config.contract_id_leg2,
                 'quantity': self.config.max_quantity,
                 'tick_size': self.config.tick_size_leg2,
-                'direction': 'sell',  # Will be overridden per trade
+                'max_slippage': self.config.max_slippage_leg2,
+                'close_order_side': 'sell',  # Will be overridden per trade
             }
             
             self.leg2_client = ExchangeFactory.create_exchange(
@@ -137,6 +141,7 @@ class PerpArbBot:
         def create_order_handler(leg_num: int):
             def handler(message):
                 try:
+                    print(f"handle websocket message [{leg_num}] {message}")
                     order_id = message.get('order_id')
                     status = message.get('status')
                         
@@ -177,8 +182,8 @@ class PerpArbBot:
     async def _get_positions(self) -> Tuple[Decimal, Decimal]:
         """Get positions for both legs."""
         try:
-            leg1_pos = await self.leg1_client.get_account_positions()
-            leg2_pos = await self.leg2_client.get_account_positions()
+            leg1_pos = await self.leg1_client.get_account_positions_with_sign()
+            leg2_pos = await self.leg2_client.get_account_positions_with_sign()
             return leg1_pos, leg2_pos
         except Exception as e:
             self.logger.log(f"Error getting positions: {e}", "ERROR")
@@ -269,7 +274,10 @@ class PerpArbBot:
             for direction in ["12", "21"]:
                 if direction == exsiting_direction:
                     continue
-
+                
+                # set close_order_side
+                self.leg1_client.config.close_order_side = "buy" if direction == "12" else "sell"
+                self.leg2_client.config.close_order_side = "sell" if direction == "12" else "buy"
                 diff = price_diff[direction]
                 if diff >= max(self.price_diff_twa[direction], self.config.min_price_diff_close):
                     self.logger.log(
@@ -285,10 +293,10 @@ class PerpArbBot:
             
             # Check open conditions
             if max_pos < self.config.max_total_size - self.config.min_order_size:
-                if diff >= max(self.price_diff_twa[direction] * 1.50, self.config.min_price_diff_open):
+                if diff >= max(self.price_diff_twa[direction] * 1.20, self.config.min_price_diff_open):
                     self.logger.log(
                         f"OPEN opportunity found: direction={direction}, "
-                        f"price_diff={diff}, positions=({leg1_pos}, {leg2_pos})",
+                        f"price_diff={diff} ({self.price_diff_twa[direction]}), positions=({leg1_pos}, {leg2_pos})",
                         "INFO"
                     )
                     return direction, "OPEN"
@@ -369,9 +377,9 @@ class PerpArbBot:
         try:
             await asyncio.wait_for(self.order_filled_event[1].wait(), timeout=self.config.order_timeout / 1000)
         except asyncio.TimeoutError:
-            self.logger.log("[LEG1] Order timeout", "WARNING")
             order_id = leg1_order_result.order_id
             if order_id:
+                self.logger.log("[LEG1] Order timeout", "WARNING")
                 self.order_canceled_event[1].clear()
                 # Cancel the order if it's still open
                 self.logger.log(f"[LEG1] [{order_id}] Cancelling order", "INFO")
@@ -405,7 +413,6 @@ class PerpArbBot:
                         leg2_direction,
                         reduce_only,
                     )
-                    time.sleep(1) # wait for market order
                     if leg2_order_result.success:
                         order_state.leg2_success = True
                         order_state.leg2_filled_size = leg2_order_result.size
@@ -427,6 +434,36 @@ class PerpArbBot:
                     self.logger.log(f"Error placing orders (attempt {attempt + 1}): {e}", "ERROR")
                     self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
             
+            # try:
+            #     await asyncio.wait_for(self.order_filled_event[2].wait(), timeout=self.config.order_timeout / 1000)
+            # except asyncio.TimeoutError:
+            #     order_id = leg2_order_result.order_id
+            #     if order_id:
+            #         self.logger.log("[LEG2] Order timeout", "WARNING")
+            #         self.order_canceled_event[2].clear()
+            #         # Cancel the order if it's still open
+            #         self.logger.log(f"[LEG2] [{order_id}] Cancelling order", "INFO")
+            #         try:
+            #             cancel_result = await self.leg2_client.cancel_order(order_id)
+            #             if not cancel_result.success:
+            #                 self.order_canceled_event[2].set()
+            #                 self.logger.log(f"[LEG2] Failed to cancel order {order_id}: {cancel_result.error_message}", "WARNING")
+            #             else:
+            #                 self.current_order_status = "CANCELED"
+
+            #         except Exception as e:
+            #             self.order_canceled_event[2].set()
+            #             self.logger.log(f"[LEG2] Error canceling order {order_id}: {e}", "ERROR")
+
+            if leg2_order_result.success and self.order_filled_event[2].is_set():
+                order_state.leg2_success = True
+                order_state.leg2_filled_size = leg2_order_result.size
+                order_state.leg2_filled_price = leg2_order_result.price
+                order_state.leg2_order_id = leg2_order_result.order_id
+                self.logger.log(
+                    f"[LEG2] Order filled: {leg2_order_result.size} @ {leg2_order_result.price}",
+                    "INFO"
+                )
 
         return order_state
             
@@ -443,7 +480,7 @@ class PerpArbBot:
         elif mismatch_size >= self.config.max_quantity:
             # Critical mismatch - exit script
             error_msg = (
-                f"\n\n[CRITICAL ERROR] Position Mismatch Detected\n"
+                f"\n\n<b>[CRITICAL ERROR]</b> Position Mismatch Detected\n"
                 f"Exchange: {self.config.exchange_leg1} / {self.config.exchange_leg2}\n"
                 f"Ticker: {self.config.ticker}\n"
                 f"Leg1 Position: {leg1_pos}\n"
@@ -563,7 +600,7 @@ class PerpArbBot:
                         self.logger.log(
                             f"Price Diff: 12={price_diff['12']:.2f} ({self.price_diff_twa['12']:.2f}), 21={price_diff['21']:.2f} ({self.price_diff_twa['21']:.2f})| "
                             f"Positions: L1={leg1_pos:.4f}, L2={leg2_pos:.4f} | "
-                            f"mismatch: {leg1_pos - leg2_pos:.4f}",
+                            f"mismatch: {abs(leg1_pos) - abs(leg2_pos):.4f}",
                             # f"direction: {direction if direction else '--'}, action: {action if action else '--'}",
                             "INFO"
                         )
@@ -583,27 +620,25 @@ class PerpArbBot:
                             action,
                             best_orders
                         )
-                        
-                        self.last_order_time = time.time() * 1000
-                        
-                        actual_price_diff = order_state.leg1_filled_price - order_state.leg2_filled_price if direction == '12' else order_state.leg2_filled_price - order_state.leg1_filled_price
-                        filled_amount = min(order_state.leg1_filled_size, order_state.leg2_filled_size)
-                        _msg = (
-                            "\n"
-                            f"Action: <b>[{action}]</b>\n"
-                            f"Direction: <b>{'leg1 long, leg2 short' if direction == '12' else 'leg1 short, leg2 long'}</b>\n"
-                            f"Ideal Price diff: <b>{price_diff[direction]:.2f}</b> (TWA <b>{self.price_diff_twa[direction]:.2f}</b>)\n"
-                            f"Actual Price diff: <b>{actual_price_diff:.2f}</b>\n"
-                            f"Order Result:\n"
-                            f"  leg1 filled {order_state.leg1_filled_size:.6f} @ {order_state.leg1_filled_price:.2f}\n"
-                            f"  leg2 filled {order_state.leg2_filled_size:.6f} @ {order_state.leg2_filled_price:.2f}\n"
-                        )
-                        if action == "OPEN":
-                            except_price_diff = abs(actual_price_diff) - abs(self.config.min_price_diff_close)
-                            _msg += f"Except profit: <b>{(except_price_diff * filled_amount):.2f}</b>\n"
 
-                        self.logger.log(_msg)
-                        await self.send_notification(_msg)
+                        if order_state.leg1_success or order_state.leg2_success:
+
+                            self.last_order_time = time.time() * 1000
+                            filled_amount = min(order_state.leg1_filled_size, order_state.leg2_filled_size)
+                            _msg = (
+                                "\n"
+                                f"Action: <b>[{action}]</b>\n"
+                                f"Direction: <b>{'leg1 long, leg2 short' if direction == '12' else 'leg1 short, leg2 long'}</b>\n"
+                                f"Ideal Price diff: <b>{price_diff[direction]:.2f}</b> (TWA <b>{self.price_diff_twa[direction]:.2f}</b>)\n"
+                                f"Order Result:\n"
+                                f"  leg1 filled {order_state.leg1_filled_size:.6f} @ {order_state.leg1_filled_price:.2f}\n"
+                                f"  leg2 filled {order_state.leg2_filled_size:.6f} @ {order_state.leg2_filled_price:.2f}\n"
+                            )
+                            if action == "OPEN":
+                                _msg += f"Except profit: <b>{(price_diff[direction] * filled_amount):.2f}</b>\n"
+
+                            self.logger.log(_msg)
+                            await self.send_notification(_msg)
                     
                     # Wait before next loop
                     await asyncio.sleep(self.config.loop_interval / 1000)
@@ -639,14 +674,16 @@ async def main():
         contract_id_leg2="0",
         exchange_leg1="binance",
         exchange_leg2="lighter",
-        max_quantity=Decimal("0.1"),
-        max_total_size=Decimal("0.2"),
-        order_interval=1*1000,      # 1 second
+        max_quantity=Decimal("0.03"),
+        max_total_size=Decimal("0.06"),
+        order_interval=1*1000,       # 1 second
         loop_interval=1*1000,        # 1 second
         order_timeout=10*1000,       # 10 seconds
-        min_price_diff_open=Decimal("2.00"),
+        min_price_diff_open=Decimal("4.00"),
         min_price_diff_close=Decimal("-1.00"),
-        min_order_size=Decimal("0.025")
+        min_order_size=Decimal("0.025"),
+        max_slippage_leg1=Decimal("4.00"),
+        max_slippage_leg2=Decimal("4.00"),
     )
     
     bot = PerpArbBot(config)
