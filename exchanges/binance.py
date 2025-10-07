@@ -263,7 +263,7 @@ class BinanceClient(BaseExchangeClient):
 
     async def place_open_order(self, contract_id: str, quantity: Decimal, direction: str) -> OrderResult:
         """Place an open order with Binance with retry logic for POST_ONLY rejections."""
-        max_retries = 15
+        max_retries = 1
         retry_count = 0
 
         while retry_count < max_retries:
@@ -329,9 +329,9 @@ class BinanceClient(BaseExchangeClient):
         """Place a market order with Binance."""
         try:
             # Validate direction
-            if direction == 'buy':
+            if direction.lower() == 'buy':
                 side = 'BUY'
-            elif direction == 'sell':
+            elif direction.lower() == 'sell':
                 side = 'SELL'
             else:
                 raise Exception(f"[OPEN] Invalid direction: {direction}")

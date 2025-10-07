@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Dict, Literal, Tuple, Optional
 
 from exchanges import ExchangeFactory
+from exchanges.base import OrderResult
 from helpers import TradingLogger
 from helpers.lark_bot import LarkBot
 from helpers.telegram_bot import TelegramBot
@@ -30,7 +31,7 @@ class PerpArbConfig:
     loop_interval: int             # 轮询时间间隔 ms
     order_timeout: int             # 订单超时时间 ms
     min_price_diff_open: Decimal   # 套利开仓的最小价差
-    max_price_diff_close: Decimal  # 套利关仓的最大价差
+    min_price_diff_close: Decimal  # 套利关仓的最大价差
     min_order_size: Decimal        # 下单的最小数量
     tick_size_leg1: Decimal = Decimal('0')
     tick_size_leg2: Decimal = Decimal('0')
@@ -44,6 +45,8 @@ class OrderState:
     leg2_success: bool = False
     leg1_filled_size: Decimal = Decimal('0')
     leg2_filled_size: Decimal = Decimal('0')
+    leg1_filled_price: Decimal = Decimal('0')
+    leg2_filled_price: Decimal = Decimal('0')
     leg1_order_id: Optional[str] = None
     leg2_order_id: Optional[str] = None
 
@@ -67,9 +70,27 @@ class PerpArbBot:
         self.shutdown_requested = False
         self.last_order_time = 0
         self.loop = None
-        
+
         # Order tracking
-        self.pending_orders = {}  # {order_id: {'leg': 1|2, 'direction': 'buy'|'sell', 'size': Decimal}}
+        self.order_filled_event = {
+            1: asyncio.Event(),
+            2: asyncio.Event(),
+        }
+        self.order_canceled_event = {
+            1: asyncio.Event(),
+            2: asyncio.Event(),
+        }
+
+        # time-weighted averange price_diff
+        # max 3600 seconds (1 hour)
+        self.price_diff_twa = {
+            '12': 0,
+            '21': 0,
+        }
+        self.price_diff_start_save_time = 0
+        self.last_price_diff_save_time = 0
+        
+        self.last_log_time = 0
 
     async def _initialize_clients(self):
         """Initialize both exchange clients."""
@@ -118,27 +139,31 @@ class PerpArbBot:
                 try:
                     order_id = message.get('order_id')
                     status = message.get('status')
-                    
-                    if order_id in self.pending_orders:
-                        order_info = self.pending_orders[order_id]
                         
-                        if status == 'FILLED':
-                            filled_size = Decimal(message.get('filled_size', 0))
-                            order_info['filled_size'] = filled_size
-                            order_info['status'] = 'FILLED'
-                            
-                            self.logger.log(
-                                f"[LEG{leg_num}] [{order_id}] FILLED "
-                                f"{filled_size} @ {message.get('price')}",
-                                "INFO"
-                            )
-                            
-                        elif status in ['CANCELED', 'FAILED']:
-                            order_info['status'] = status
-                            self.logger.log(
-                                f"[LEG{leg_num}] [{order_id}] {status}",
-                                "WARNING"
-                            )
+                    if status == 'FILLED':
+                        filled_size = Decimal(message.get('filled_size', 0))
+
+                        # Ensure thread-safe interaction with asyncio event loop
+                        if self.loop is not None:
+                            self.loop.call_soon_threadsafe(self.order_filled_event[leg_num].set)
+                        else:
+                            # Fallback (should not happen after run() starts)
+                            self.order_filled_event[leg_num].set()
+                        
+                        self.logger.log(
+                            f"[LEG{leg_num}] [{order_id}] FILLED "
+                            f"{filled_size} @ {message.get('price')}",
+                            "INFO"
+                        )
+                        
+                        if filled_size > Decimal("0"):
+                            self.logger.log_transaction(order_id, f"LEG{leg_num}", filled_size, message.get('price'), status)
+                        
+                    elif status in ['CANCELED', 'FAILED']:
+                        self.logger.log(
+                            f"[LEG{leg_num}] [{order_id}] {status}",
+                            "WARNING"
+                        )
                             
                 except Exception as e:
                     self.logger.log(f"Error in order handler (leg{leg_num}): {e}", "ERROR")
@@ -174,11 +199,11 @@ class PerpArbBot:
             best_orders = {
                 "12": {  # leg1 buy, leg2 sell
                     "best_ask": [leg1_ask, leg1_ask_qty],  # leg1 taker buy price
-                    "best_bid": [leg2_bid, leg1_bid_qty],  # leg2 taker sell price
+                    "best_bid": [leg2_bid, leg2_bid_qty],  # leg2 taker sell price
                 },
                 "21": {  # leg1 sell, leg2 buy
-                    "best_bid": [leg1_bid, leg2_ask_qty],  # leg1 taker sell price
-                    "best_ask": [leg2_ask, leg2_bid_qty],  # leg2 taker buy price
+                    "best_bid": [leg1_bid, leg1_bid_qty],  # leg1 taker sell price
+                    "best_ask": [leg2_ask, leg2_ask_qty],  # leg2 taker buy price
                 }
             }
             
@@ -207,7 +232,24 @@ class PerpArbBot:
         # Direction "21": leg1 sell (bid), leg2 buy (ask)
         # price_diff = sell_price - buy_price
         price_diff["21"] = best_orders["21"]["best_bid"][0] - best_orders["21"]["best_ask"][0]
-        
+
+        # save Time-weighted Average price_diff
+        cur_ts = int(time.time())
+        if self.last_price_diff_save_time == 0:
+            self.price_diff_twa = {k: float(v) for k, v in price_diff.items()}
+            self.price_diff_start_save_time = cur_ts
+            self.last_price_diff_save_time = cur_ts
+        elif cur_ts - self.last_price_diff_save_time >= 1:
+            # max 3600 seconds (1 hour)
+            delta_t = cur_ts - self.last_price_diff_save_time
+            prev_t = min(self.last_price_diff_save_time - self.price_diff_start_save_time, max(3600 - delta_t, 0))
+            total_t = prev_t + delta_t
+            
+            if total_t > 0:
+                self.price_diff_twa["12"] = (self.price_diff_twa["12"] * prev_t + float(price_diff["12"]) * delta_t) / total_t
+                self.price_diff_twa["21"] = (self.price_diff_twa["21"] * prev_t + float(price_diff["21"]) * delta_t) / total_t
+                self.last_price_diff_save_time = cur_ts
+
         return price_diff
 
     async def _check_arb_conditions(
@@ -220,30 +262,36 @@ class PerpArbBot:
         
         max_pos = max(abs(leg1_pos), abs(leg2_pos))
         min_pos = min(abs(leg1_pos), abs(leg2_pos))
+        exsiting_direction = "12" if leg1_pos > Decimal("0") and leg2_pos < Decimal("0") else "21"
         
-        # Check each direction
-        for direction in ["12", "21"]:
-            diff = price_diff[direction]
-            
-            # Check open conditions
-            if max_pos < self.config.max_total_size - self.config.min_order_size:
-                if diff >= self.config.min_price_diff_open:
-                    self.logger.log(
-                        f"OPEN opportunity found: direction={direction}, "
-                        f"price_diff={diff}, positions=({leg1_pos}, {leg2_pos})",
-                        "INFO"
-                    )
-                    return direction, "OPEN"
-            
-            # Check close conditions
-            if min_pos >= self.config.min_order_size:
-                if diff <= self.config.max_price_diff_close:
+        # Check close conditions
+        if min_pos >= self.config.min_order_size:
+            for direction in ["12", "21"]:
+                if direction == exsiting_direction:
+                    continue
+
+                diff = price_diff[direction]
+                if diff >= max(self.price_diff_twa[direction], self.config.min_price_diff_close):
                     self.logger.log(
                         f"CLOSE opportunity found: direction={direction}, "
                         f"price_diff={diff}, positions=({leg1_pos}, {leg2_pos})",
                         "INFO"
                     )
                     return direction, "CLOSE"
+
+        # Check each direction to open
+        for direction in ["12", "21"]:
+            diff = price_diff[direction]
+            
+            # Check open conditions
+            if max_pos < self.config.max_total_size - self.config.min_order_size:
+                if diff >= max(self.price_diff_twa[direction] * 1.50, self.config.min_price_diff_open):
+                    self.logger.log(
+                        f"OPEN opportunity found: direction={direction}, "
+                        f"price_diff={diff}, positions=({leg1_pos}, {leg2_pos})",
+                        "INFO"
+                    )
+                    return direction, "OPEN"
         
         return None, None
 
@@ -257,10 +305,14 @@ class PerpArbBot:
         
         # Calculate order quantity
         if direction == "12":
+            leg1_direction = "buy"   # leg1 long
             leg1_available = best_orders["12"]["best_ask"][1]
+            leg2_direction = "sell"  # leg2 short
             leg2_available = best_orders["12"]["best_bid"][1]
         else:  # "21"
+            leg1_direction = "sell"  # leg1 short
             leg1_available = best_orders["21"]["best_bid"][1]
+            leg2_direction = "buy"   # leg2 long
             leg2_available = best_orders["21"]["best_ask"][1]
         
         order_quantity = min(
@@ -276,22 +328,6 @@ class PerpArbBot:
                 "INFO"
             )
             return OrderState()
-        
-        # Determine order directions for each leg
-        if action == "OPEN":
-            if direction == "12":
-                leg1_direction = "buy"   # leg1 long
-                leg2_direction = "sell"  # leg2 short
-            else:  # "21"
-                leg1_direction = "sell"  # leg1 short
-                leg2_direction = "buy"   # leg2 long
-        else:  # CLOSE
-            if direction == "12":
-                leg1_direction = "sell"  # close leg1 long
-                leg2_direction = "buy"   # close leg2 short
-            else:  # "21"
-                leg1_direction = "buy"   # close leg1 short
-                leg2_direction = "sell"  # close leg2 long
         
         self.logger.log(
             f"Executing {action} orders: direction={direction}, "
@@ -315,118 +351,85 @@ class PerpArbBot:
         quantity: Decimal,
         leg1_direction: str,
         leg2_direction: str,
-        max_retries: int = 3,
+        max_retries: int = 3, # market order max retries
         reduce_only: bool = False,
     ) -> OrderState:
         """Place orders on both legs with retry logic."""
+        self.order_filled_event[1].clear()
+        self.order_filled_event[2].clear()
         
         order_state = OrderState()
-        
-        for attempt in range(max_retries):
-            try:
-                # Place orders simultaneously
-                results = await asyncio.gather(
-                    self.leg1_client.place_market_order(
-                        self.config.contract_id_leg1,
-                        quantity,
-                        leg1_direction,
-                        reduce_only,
-                    ),
-                    self.leg2_client.place_market_order(
+
+        # leg1 order process
+        # binance perp ETHUSDC: limit order (0 fees) -> timeout -> market order (0.0275%)
+        # limit order fist
+        leg1_order_result: OrderResult = await self.leg1_client.place_open_order(self.config.contract_id_leg1, quantity, leg1_direction)
+
+        # wait limit order filled, cancel if timeout
+        try:
+            await asyncio.wait_for(self.order_filled_event[1].wait(), timeout=self.config.order_timeout / 1000)
+        except asyncio.TimeoutError:
+            self.logger.log("[LEG1] Order timeout", "WARNING")
+            order_id = leg1_order_result.order_id
+            if order_id:
+                self.order_canceled_event[1].clear()
+                # Cancel the order if it's still open
+                self.logger.log(f"[LEG1] [{order_id}] Cancelling order", "INFO")
+                try:
+                    cancel_result = await self.leg1_client.cancel_order(order_id)
+                    if not cancel_result.success:
+                        self.order_canceled_event[1].set()
+                        self.logger.log(f"[LEG1] Failed to cancel order {order_id}: {cancel_result.error_message}", "WARNING")
+                    else:
+                        self.current_order_status = "CANCELED"
+
+                except Exception as e:
+                    self.order_canceled_event[1].set()
+                    self.logger.log(f"[LEG1] Error canceling order {order_id}: {e}", "ERROR")
+
+        if leg1_order_result.success and self.order_filled_event[1].is_set():
+            order_state.leg1_success = True
+            order_state.leg1_filled_size = leg1_order_result.size
+            order_state.leg1_filled_price = leg1_order_result.price
+            order_state.leg1_order_id = leg1_order_result.order_id
+            self.logger.log(
+                f"[LEG1] Order filled: {leg1_order_result.size} @ {leg1_order_result.price}",
+                "INFO"
+            )
+
+            for attempt in range(max_retries):
+                try:
+                    leg2_order_result = await self.leg2_client.place_market_order(
                         self.config.contract_id_leg2,
                         quantity,
                         leg2_direction,
                         reduce_only,
-                    ),
-                    return_exceptions=True
-                )
-                
-                leg1_result, leg2_result = results
-                
-                # Process leg1 result
-                if isinstance(leg1_result, Exception):
-                    self.logger.log(f"[LEG1] Order failed: {leg1_result}", "ERROR")
-                    order_state.leg1_success = False
-                elif leg1_result.success:
-                    order_state.leg1_success = True
-                    order_state.leg1_filled_size = leg1_result.size
-                    order_state.leg1_order_id = leg1_result.order_id
-                    self.logger.log(
-                        f"[LEG1] Order filled: {leg1_result.size} @ {leg1_result.price}",
-                        "INFO"
                     )
-                else:
-                    self.logger.log(f"[LEG1] Order failed: {leg1_result.error_message}", "ERROR")
-                    order_state.leg1_success = False
-                
-                # Process leg2 result
-                if isinstance(leg2_result, Exception):
-                    self.logger.log(f"[LEG2] Order failed: {leg2_result}", "ERROR")
-                    order_state.leg2_success = False
-                elif leg2_result.success:
-                    order_state.leg2_success = True
-                    order_state.leg2_filled_size = leg2_result.size
-                    order_state.leg2_order_id = leg2_result.order_id
-                    self.logger.log(
-                        f"[LEG2] Order filled: {leg2_result.size} @ {leg2_result.price}",
-                        "INFO"
-                    )
-                else:
-                    self.logger.log(f"[LEG2] Order failed: {leg2_result.error_message}", "ERROR")
-                    order_state.leg2_success = False
-                
-                # Both orders failed
-                if not order_state.leg1_success and not order_state.leg2_success:
-                    self.logger.log("Both orders failed, stopping retries", "ERROR")
-                    break
-                
-                # Both orders succeeded
-                if order_state.leg1_success and order_state.leg2_success:
-                    self.logger.log("Both orders succeeded", "INFO")
-                    break
-                
-                # One order failed - retry with market order to close risk exposure
-                if attempt < max_retries - 1:
-                    self.logger.log(
-                        f"One order failed (attempt {attempt + 1}/{max_retries}), retrying...",
-                        "WARNING"
-                    )
-                    
-                    # Retry only the failed leg with market order
-                    if not order_state.leg1_success:
-                        retry_result = await self.leg1_client.place_market_order(
-                            self.config.contract_id_leg1,
-                            quantity,
-                            leg1_direction,
-                            reduce_only,
+                    time.sleep(1) # wait for market order
+                    if leg2_order_result.success:
+                        order_state.leg2_success = True
+                        order_state.leg2_filled_size = leg2_order_result.size
+                        order_state.leg2_filled_price = leg2_order_result.price
+                        order_state.leg2_order_id = leg2_order_result.order_id
+                        self.logger.log(
+                            f"[LEG2] Order filled: {leg2_order_result.size} @ {leg2_order_result.price}",
+                            "INFO"
                         )
-                        if retry_result.success:
-                            order_state.leg1_success = True
-                            order_state.leg1_filled_size = retry_result.size
-                            order_state.leg1_order_id = retry_result.order_id
-                    
-                    if not order_state.leg2_success:
-                        retry_result = await self.leg2_client.place_market_order(
-                            self.config.contract_id_leg2,
-                            quantity,
-                            leg2_direction,
-                            reduce_only,
-                        )
-                        if retry_result.success:
-                            order_state.leg2_success = True
-                            order_state.leg2_filled_size = retry_result.size
-                            order_state.leg2_order_id = retry_result.order_id
-                    
-                    # Check if retry succeeded
-                    if order_state.leg1_success and order_state.leg2_success:
-                        self.logger.log("Retry succeeded", "INFO")
                         break
-                
-            except Exception as e:
-                self.logger.log(f"Error placing orders (attempt {attempt + 1}): {e}", "ERROR")
-                self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
-        
+                    else:
+                        if attempt > 0 and attempt < max_retries - 1:
+                            self.logger.log(
+                                f"One order failed (attempt {attempt + 1}/{max_retries}), retrying...",
+                                "WARNING"
+                            )
+
+                except Exception as e:
+                    self.logger.log(f"Error placing orders (attempt {attempt + 1}): {e}", "ERROR")
+                    self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
+            
+
         return order_state
+            
 
     async def _check_mismatch(self, leg1_pos: Decimal, leg2_pos: Decimal) -> bool:
         """Check position mismatch and handle accordingly."""
@@ -494,7 +497,7 @@ class PerpArbBot:
             self.logger.log(f"Max Quantity: {self.config.max_quantity}", "INFO")
             self.logger.log(f"Max Total Size: {self.config.max_total_size}", "INFO")
             self.logger.log(f"Min Price Diff (Open): {self.config.min_price_diff_open}", "INFO")
-            self.logger.log(f"Max Price Diff (Close): {self.config.max_price_diff_close}", "INFO")
+            self.logger.log(f"Max Price Diff (Close): {self.config.min_price_diff_close}", "INFO")
             self.logger.log(f"Min Order Size: {self.config.min_order_size}", "INFO")
             self.logger.log("========================================", "INFO")
             
@@ -516,19 +519,19 @@ class PerpArbBot:
             mismatch_size = abs(abs(leg1_pos) - abs(leg2_pos))
             self.logger.log(f"mismatch_size {mismatch_size}")
             
-            # if mismatch_size >= self.config.min_order_size:
-            #     error_msg = (
-            #         f"\n\n【WARNING】Initial Position Mismatch Detected\n"
-            #         f"Leg1 Position: {leg1_pos}\n"
-            #         f"Leg2 Position: {leg2_pos}\n"
-            #         f"Mismatch Size: {mismatch_size}\n"
-            #         f"⚠️ Please manually rebalance before starting bot.\n"
-            #     )
-            #     self.logger.log(error_msg, "WARNING")
-            #     await self.send_notification(error_msg)
+            if mismatch_size >= self.config.min_order_size:
+                error_msg = (
+                    f"\n\n[WARNING] Initial Position Mismatch Detected\n"
+                    f"Leg1 Position: {leg1_pos}\n"
+                    f"Leg2 Position: {leg2_pos}\n"
+                    f"Mismatch Size: {mismatch_size}\n"
+                    f"⚠️ Please manually rebalance before starting bot.\n"
+                )
+                self.logger.log(error_msg, "WARNING")
+                await self.send_notification(error_msg)
                 
-            #     if mismatch_size >= self.config.max_quantity:
-            #         raise ValueError("Initial mismatch too large, exiting")
+                if mismatch_size >= self.config.max_quantity:
+                    raise ValueError("Initial mismatch too large, exiting")
             
             # Main trading loop
             while not self.shutdown_requested:
@@ -556,30 +559,51 @@ class PerpArbBot:
                     )
                     
                     # Log current state
-                    self.logger.log(
-                        f"Positions: L1={leg1_pos}, L2={leg2_pos} | "
-                        f"Price Diff: 12={price_diff['12']}, 21={price_diff['21']} | "
-                        f"direction: {direction}, action: {action}",
-                        "INFO"
-                    )
+                    if time.time() - self.last_log_time > 60 or self.last_log_time == 0:
+                        self.logger.log(
+                            f"Price Diff: 12={price_diff['12']:.2f} ({self.price_diff_twa['12']:.2f}), 21={price_diff['21']:.2f} ({self.price_diff_twa['21']:.2f})| "
+                            f"Positions: L1={leg1_pos:.4f}, L2={leg2_pos:.4f} | "
+                            f"mismatch: {leg1_pos - leg2_pos:.4f}",
+                            # f"direction: {direction if direction else '--'}, action: {action if action else '--'}",
+                            "INFO"
+                        )
+                        self.last_log_time = time.time()
+
+                        # Check mismatch after order execution
+                        critical_mismatch = await self._check_mismatch(leg1_pos, leg2_pos)
+                        
+                        if critical_mismatch:
+                            self.shutdown_requested = True
+                            break
                     
-                    # # 5. Execute orders if conditions met
-                    # if direction and action:
-                    #     order_state = await self._execute_orders(
-                    #         direction,
-                    #         action,
-                    #         best_orders
-                    #     )
+                    # 5. Execute orders if conditions met
+                    if direction and action:
+                        order_state = await self._execute_orders(
+                            direction,
+                            action,
+                            best_orders
+                        )
                         
-                    #     self.last_order_time = time.time() * 1000
+                        self.last_order_time = time.time() * 1000
                         
-                    #     # 6. Check mismatch after order execution
-                    #     leg1_pos, leg2_pos = await self._get_positions()
-                    #     critical_mismatch = await self._check_mismatch(leg1_pos, leg2_pos)
-                        
-                    #     if critical_mismatch:
-                    #         self.shutdown_requested = True
-                    #         break
+                        actual_price_diff = order_state.leg1_filled_price - order_state.leg2_filled_price if direction == '12' else order_state.leg2_filled_price - order_state.leg1_filled_price
+                        filled_amount = min(order_state.leg1_filled_size, order_state.leg2_filled_size)
+                        _msg = (
+                            "\n"
+                            f"Action: <b>[{action}]</b>\n"
+                            f"Direction: <b>{'leg1 long, leg2 short' if direction == '12' else 'leg1 short, leg2 long'}</b>\n"
+                            f"Ideal Price diff: <b>{price_diff[direction]:.2f}</b> (TWA <b>{self.price_diff_twa[direction]:.2f}</b>)\n"
+                            f"Actual Price diff: <b>{actual_price_diff:.2f}</b>\n"
+                            f"Order Result:\n"
+                            f"  leg1 filled {order_state.leg1_filled_size:.6f} @ {order_state.leg1_filled_price:.2f}\n"
+                            f"  leg2 filled {order_state.leg2_filled_size:.6f} @ {order_state.leg2_filled_price:.2f}\n"
+                        )
+                        if action == "OPEN":
+                            except_price_diff = abs(actual_price_diff) - abs(self.config.min_price_diff_close)
+                            _msg += f"Except profit: <b>{(except_price_diff * filled_amount):.2f}</b>\n"
+
+                        self.logger.log(_msg)
+                        await self.send_notification(_msg)
                     
                     # Wait before next loop
                     await asyncio.sleep(self.config.loop_interval / 1000)
@@ -616,12 +640,12 @@ async def main():
         exchange_leg1="binance",
         exchange_leg2="lighter",
         max_quantity=Decimal("0.1"),
-        max_total_size=Decimal("1.0"),
+        max_total_size=Decimal("0.2"),
         order_interval=1*1000,      # 1 second
         loop_interval=1*1000,        # 1 second
         order_timeout=10*1000,       # 10 seconds
-        min_price_diff_open=Decimal("5"),
-        max_price_diff_close=Decimal("1.0"),
+        min_price_diff_open=Decimal("2.00"),
+        min_price_diff_close=Decimal("-1.00"),
         min_order_size=Decimal("0.025")
     )
     

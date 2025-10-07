@@ -322,20 +322,23 @@ class LighterClient(BaseExchangeClient):
         order_result = await self._submit_order_with_retry(order_params)
         return order_result
     
-    async def place_market_order(self, contract_id: str, quantity: Decimal, price: Decimal,
-                                side: str, reduce_only: bool = False) -> OrderResult:
-        """Place a post only order with Lighter using official SDK."""
+    async def place_market_order(self, contract_id: str, quantity: Decimal, side: str, reduce_only: bool = False) -> OrderResult:
+        """Place a market order with Lighter using official SDK."""
         # Ensure client is initialized
         if self.lighter_client is None:
             await self._initialize_lighter_client()
 
-        # Determine order side and price
+        # Determine order side
         if side.lower() == 'buy':
             is_ask = False
         elif side.lower() == 'sell':
             is_ask = True
         else:
             raise Exception(f"Invalid side: {side}")
+
+        # Get current market price for market orders
+        best_bid, best_ask = await self.fetch_bbo_prices(contract_id)
+        market_price = best_ask - self.config.tick_size if is_ask else best_bid + self.config.tick_size
 
         # Generate unique client order index
         client_order_index = int(time.time() * 1000) % 1000000  # Simple unique ID
@@ -346,7 +349,7 @@ class LighterClient(BaseExchangeClient):
             'market_index': self.config.contract_id,
             'client_order_index': client_order_index,
             'base_amount': int(quantity * self.base_amount_multiplier),
-            'price': int(price * self.price_multiplier),
+            'price': int(market_price * self.price_multiplier),
             'is_ask': is_ask,
             'order_type': self.lighter_client.ORDER_TYPE_MARKET,
             'time_in_force': self.lighter_client.ORDER_TIME_IN_FORCE_GOOD_TILL_TIME,

@@ -17,14 +17,13 @@ perp 跨交易所套利, 在价差较大时，于 2 个交易所反向下单（�
 3. 根据 `direction` 和 `action` 执行订单
    a. `order_quantity = min(leg1 挂单数量， leg2 挂单数量，config.max_quantity )`
    b. `quantity < config.min_order_size` 跳过下单逻辑
-   c. 2 个 leg 同时下单，以 taker 成交
+   c. leg1 (binance) 以 maker 订单下单，等待结果
    d. websocket 接受订单结果
-      - 当其中 2 个订单都失败，停止等待
-      - 当其中 1 个订单失败，重试下单逻辑(不需要重新请求价格，直接市价单成交，快速关闭风险敞口)，最多重试 3 次
-      - 当其中 1 个或 2 个订单超时没有回应，停止等待
-   e. 进入 mismatch 逻辑
+      - 当 leg1 limit order 完全成交， leg2 下市价单
+      - 当 leg1 limit order 订单失败，结束本次执行
+      - 当 leg1 limit order 订单超时未成交，取消订单，结束本次执行
 4. mismatch： 2 个 leg 持仓数量绝对值的差值
-   a. 每次执行订单之后（无论成功失败）进入本逻辑判断仓位 mismatch 情况
+   a.每隔一段时间检查 mismatch，判断仓位 mismatch 情况
    b. `mismatch_size < config.min_order_size` 忽略
    c. `mismatch_size >= config.max_quantity` 退出脚本，发送 tg 和 lark 报警消息
 
@@ -33,7 +32,7 @@ perp 跨交易所套利, 在价差较大时，于 2 个交易所反向下单（�
   - `price_diff[direction] >= config.min_price_diff_open`
 - 关仓条件:
   - `min(abs(leg1_position), abs(leg2_position)) >= config.min_order_size`
-  - `price_diff[direction] <= config.max_price_diff_close`
+  - `price_diff[direction] >= config.min_price_diff_close`
 
 ## 相关定义
 
@@ -73,6 +72,6 @@ class PerpArbConfig:
     loop_interval: int # 轮询时间间隔 ms
     order_timeout: int # 订单超时时间 ms
     min_price_diff_open: Decimal # 套利开仓的最小价差
-    max_price_diff_close: Decimal # 套利关仓的最大价差
+    min_price_diff_close: Decimal # 套利关仓的最小价差
     min_order_size: Decimal # 下单的最小数量
 ```
