@@ -45,7 +45,10 @@ class ExchangeFactory:
         # Dynamically import the exchange class only when needed
         exchange_class_path = cls._registered_exchanges[exchange_name]
         exchange_class = cls._import_exchange_class(exchange_class_path)
-        return exchange_class(config, logger)
+        if logger is None:
+            return exchange_class(config)
+        else:
+            return exchange_class(config, logger)
 
     @classmethod
     def _import_exchange_class(cls, class_path: str) -> Type[BaseExchangeClient]:
