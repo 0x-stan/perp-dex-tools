@@ -386,17 +386,16 @@ class PerpArbBot:
                 try:
                     cancel_result = await self.leg1_client.cancel_order(order_id)
                     if not cancel_result.success:
-                        if cancel_result.error_message == "Unknown order sent.":
-                            # refetch order info, check if order already filled
-                            order_info = await self.leg1_client.get_order_info(order_id)
-                            self.current_order_status = order_info.status
-                            if order_info.filled_size > Decimal("0"):
-                                leg1_order_result.success = True
-                                leg1_order_result.status = order_info.status
-                                leg1_order_result.order_id = order_info.order_id
-                                leg1_order_result.filled_size = order_info.filled_size
-                                leg1_order_result.side = order_info.side
-                                leg1_order_result.price = order_info.price
+                        # refetch order info, check if order already filled
+                        order_info = await self.leg1_client.get_order_info(order_id)
+                        self.current_order_status = order_info.status
+                        if order_info.filled_size > Decimal("0"):
+                            leg1_order_result.success = True
+                            leg1_order_result.status = order_info.status
+                            leg1_order_result.order_id = order_info.order_id
+                            leg1_order_result.filled_size = order_info.filled_size
+                            leg1_order_result.side = order_info.side
+                            leg1_order_result.price = order_info.price
                         else:
                             self.order_canceled_event[1].set()
                             self.logger.log(f"[LEG1] Failed to cancel order {order_id}: {cancel_result.error_message}", "WARNING")
