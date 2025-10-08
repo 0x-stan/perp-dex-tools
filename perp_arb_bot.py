@@ -386,8 +386,20 @@ class PerpArbBot:
                 try:
                     cancel_result = await self.leg1_client.cancel_order(order_id)
                     if not cancel_result.success:
-                        self.order_canceled_event[1].set()
-                        self.logger.log(f"[LEG1] Failed to cancel order {order_id}: {cancel_result.error_message}", "WARNING")
+                        if cancel_result.error_message == "Unknown order sent.":
+                            # refetch order info, check if order already filled
+                            order_info = await self.leg1_client.get_order_info(order_id)
+                            self.current_order_status = order_info.status
+                            if order_info.filled_size > Decimal("0"):
+                                leg1_order_result.success = True
+                                leg1_order_result.status = order_info.status
+                                leg1_order_result.order_id = order_info.order_id
+                                leg1_order_result.filled_size = order_info.filled_size
+                                leg1_order_result.side = order_info.side
+                                leg1_order_result.price = order_info.price
+                        else:
+                            self.order_canceled_event[1].set()
+                            self.logger.log(f"[LEG1] Failed to cancel order {order_id}: {cancel_result.error_message}", "WARNING")
                     else:
                         self.current_order_status = "CANCELED"
 
@@ -433,27 +445,6 @@ class PerpArbBot:
                 except Exception as e:
                     self.logger.log(f"Error placing orders (attempt {attempt + 1}): {e}", "ERROR")
                     self.logger.log(f"Traceback: {traceback.format_exc()}", "ERROR")
-            
-            # try:
-            #     await asyncio.wait_for(self.order_filled_event[2].wait(), timeout=self.config.order_timeout / 1000)
-            # except asyncio.TimeoutError:
-            #     order_id = leg2_order_result.order_id
-            #     if order_id:
-            #         self.logger.log("[LEG2] Order timeout", "WARNING")
-            #         self.order_canceled_event[2].clear()
-            #         # Cancel the order if it's still open
-            #         self.logger.log(f"[LEG2] [{order_id}] Cancelling order", "INFO")
-            #         try:
-            #             cancel_result = await self.leg2_client.cancel_order(order_id)
-            #             if not cancel_result.success:
-            #                 self.order_canceled_event[2].set()
-            #                 self.logger.log(f"[LEG2] Failed to cancel order {order_id}: {cancel_result.error_message}", "WARNING")
-            #             else:
-            #                 self.current_order_status = "CANCELED"
-
-            #         except Exception as e:
-            #             self.order_canceled_event[2].set()
-            #             self.logger.log(f"[LEG2] Error canceling order {order_id}: {e}", "ERROR")
 
             if leg2_order_result.success and self.order_filled_event[2].is_set():
                 order_state.leg2_success = True
