@@ -155,6 +155,9 @@ class BinanceWebSocketManager:
                     'contract_id': symbol,
                     'filled_size': filled_quantity
                 })
+            
+            if mapped_status in ['FILLED']:
+                self.logger.log_transaction(order_id, side, quantity, price, status, 'binance')
                 
         except Exception as e:
             if self.logger:

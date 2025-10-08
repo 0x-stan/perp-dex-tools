@@ -243,7 +243,7 @@ class LighterClient(BaseExchangeClient):
                 self.current_order = current_order
 
             if status in ['FILLED', 'CANCELED']:
-                self.logger.log_transaction(order_id, side, filled_size, price, status)
+                self.logger.log_transaction(order_id, side, filled_size, price, status, 'lighter')
 
     @query_retry(default_return=(0, 0))
     async def fetch_bbo_prices(self, contract_id: str) -> Tuple[Decimal, Decimal]:

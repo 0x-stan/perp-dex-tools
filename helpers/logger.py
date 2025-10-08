@@ -93,11 +93,11 @@ class TradingLogger:
         else:
             self.logger.info(formatted_message)
 
-    def log_transaction(self, order_id: str, side: str, quantity: Decimal, price: Decimal, status: str):
+    def log_transaction(self, order_id: str, side: str, quantity: Decimal, price: Decimal, status: str, exchange: str = ''):
         """Log a transaction to CSV file."""
         try:
             timestamp = datetime.now(self.timezone).strftime("%Y-%m-%d %H:%M:%S")
-            row = [timestamp, order_id, side, quantity, price, status]
+            row = [timestamp, order_id, side, quantity, price, status, exchange]
 
             # Check if file exists to write headers
             file_exists = os.path.isfile(self.log_file)
@@ -105,7 +105,7 @@ class TradingLogger:
             with open(self.log_file, 'a', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 if not file_exists:
-                    writer.writerow(['Timestamp', 'OrderID', 'Side', 'Quantity', 'Price', 'Status'])
+                    writer.writerow(['Timestamp', 'OrderID', 'Side', 'Quantity', 'Price', 'Status', 'Exchange'])
                 writer.writerow(row)
 
         except Exception as e:

@@ -3,10 +3,14 @@ Perpetual Arbitrage Bot - Cross-exchange arbitrage trading
 """
 
 import os
+import sys
+from pathlib import Path
+import argparse
 import time
 import asyncio
 import traceback
 from dataclasses import dataclass
+import dotenv
 from decimal import Decimal
 from typing import Dict, Literal, Tuple, Optional
 
@@ -141,7 +145,6 @@ class PerpArbBot:
         def create_order_handler(leg_num: int):
             def handler(message):
                 try:
-                    print(f"handle websocket message [{leg_num}] {message}")
                     order_id = message.get('order_id')
                     status = message.get('status')
                         
@@ -160,9 +163,6 @@ class PerpArbBot:
                             f"{filled_size} @ {message.get('price')}",
                             "INFO"
                         )
-                        
-                        if filled_size > Decimal("0"):
-                            self.logger.log_transaction(order_id, f"LEG{leg_num}", filled_size, message.get('price'), status)
                         
                     elif status in ['CANCELED', 'FAILED']:
                         self.logger.log(
@@ -536,6 +536,7 @@ class PerpArbBot:
             self.logger.log(f"Min Price Diff (Open): {self.config.min_price_diff_open}", "INFO")
             self.logger.log(f"Max Price Diff (Close): {self.config.min_price_diff_close}", "INFO")
             self.logger.log(f"Min Order Size: {self.config.min_order_size}", "INFO")
+            self.logger.log(f"Slippage: {self.config.max_slippage_leg2}", "INFO")
             self.logger.log("========================================", "INFO")
             
             # Connect to exchanges
@@ -665,33 +666,68 @@ class PerpArbBot:
                 self.logger.log(f"Error during cleanup: {e}", "ERROR")
 
 
+
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description='Perp Arbitrage Bot - Supports multiple exchanges')
+
+    # Trading parameters
+    parser.add_argument('--ticker', type=str, default='ETH',
+                        help='Ticker (default: ETH)')
+    parser.add_argument('--quantity', type=Decimal, default=Decimal("0.03"),
+                        help='Order quantity (default: 0.03)')
+    parser.add_argument('--total', type=Decimal, default=Decimal("0.06"),
+                        help='Total Order quantity (default: 0.06)')
+    parser.add_argument('--open', type=Decimal, default=Decimal("4.00"),
+                        help='min_price_diff_open (default: 4.00)')
+    parser.add_argument('--close', type=Decimal, default=Decimal("-1.00"),
+                        help='min_price_diff_open (default: -1.00)')
+    parser.add_argument('--slippage', type=Decimal, default=Decimal("4.00"),
+                        help='max_slippage (default: 4.00)')
+    parser.add_argument('--order-interval', type=Decimal, default=Decimal("60"),
+                        help='max_slippage (default: 60)')
+    parser.add_argument('--env-file', type=str, default=".env",
+                        help=".env file path (default: .env)")
+
+    return parser.parse_args()
+
+
 async def main():
-    """Entry point."""
-    # Example configuration
+    """Main entry point."""
+    args = parse_arguments()
+
+    env_path = Path(args.env_file)
+    if not env_path.exists():
+        print(f"Env file not find: {env_path.resolve()}")
+        sys.exit(1)
+    dotenv.load_dotenv(args.env_file)
+
     config = PerpArbConfig(
         ticker="ETH",
         contract_id_leg1="ETHUSDC",
         contract_id_leg2="0",
         exchange_leg1="binance",
         exchange_leg2="lighter",
-        max_quantity=Decimal("0.03"),
-        max_total_size=Decimal("0.06"),
+        max_quantity=args.quantity,
+        max_total_size=args.total,
         order_interval=1*1000,       # 1 second
         loop_interval=1*1000,        # 1 second
-        order_timeout=10*1000,       # 10 seconds
-        min_price_diff_open=Decimal("4.00"),
-        min_price_diff_close=Decimal("-1.00"),
+        order_timeout=5*1000,       # 10 seconds
+        min_price_diff_open=args.open,
+        min_price_diff_close=args.close,
         min_order_size=Decimal("0.025"),
-        max_slippage_leg1=Decimal("4.00"),
-        max_slippage_leg2=Decimal("4.00"),
+        max_slippage_leg1=args.slippage,
+        max_slippage_leg2=args.slippage,
     )
     
     bot = PerpArbBot(config)
-    await bot.run()
+    try:
+        await bot.run()
+    except Exception as e:
+        print(f"Bot execution failed: {e}")
+        # The bot's run method already handles graceful shutdown
+        return
 
 
 if __name__ == "__main__":
-    import dotenv
-    dotenv.load_dotenv()
-
     asyncio.run(main())
