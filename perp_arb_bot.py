@@ -710,7 +710,7 @@ async def main():
         exchange_leg2="lighter",
         max_quantity=args.quantity,
         max_total_size=args.total,
-        order_interval=1*1000,       # 1 second
+        order_interval=args.order_interval*1000,       # 1 second
         loop_interval=1*1000,        # 1 second
         order_timeout=5*1000,       # 10 seconds
         min_price_diff_open=args.open,
