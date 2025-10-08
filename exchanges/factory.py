@@ -18,6 +18,7 @@ class ExchangeFactory:
         'aster': 'exchanges.aster.AsterClient',
         'lighter': 'exchanges.lighter.LighterClient',
         'grvt': 'exchanges.grvt.GrvtClient',
+        'extended': 'exchanges.extended.ExtendedClient',
         'binance': 'exchanges.binance.BinanceClient',
     }
 
