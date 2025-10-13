@@ -106,6 +106,8 @@ class BinanceLighterArb:
         self._lighter_fill_event = asyncio.Event()
         self._last_lighter_fill: Optional[Dict[str, Any]] = None
 
+        self.last_log_time = 0
+
         # External cancellation hook.
         self._shutdown = asyncio.Event()
 
@@ -464,7 +466,7 @@ class BinanceLighterArb:
     # Trading loop scaffolding
     # ------------------------------------------------------------------
 
-    async def _compute_opportunity(self) -> Optional[Tuple[str, Decimal]]:
+    async def _compute_opportunity(self) -> Optional[Tuple[str, Decimal, Decimal]]:
         """
         Placeholder for opportunity detection.
 
@@ -474,10 +476,19 @@ class BinanceLighterArb:
         if not self._lighter_order_book_ready.is_set():
             return None
 
-        positions = await self._get_current_positions()
-        if max(abs(positions[0]), abs(positions[1])) >= self.config.max_position_size:
+        binance_pos, lighter_pos = await self._get_current_positions()
+        abs_leg1 = abs(binance_pos)
+        abs_leg2 = abs(lighter_pos)
+        mismatch = abs(abs_leg1 - abs_leg2)
+
+        mismatch_limit = self.config.max_order_size
+        if mismatch_limit > 0 and mismatch >= mismatch_limit:
             if self.logger:
-                self.logger.log("Position limit reached, skipping opportunity", "INFO")
+                self.logger.log(
+                    f"Position mismatch {mismatch} exceeds max_order_size {mismatch_limit}",
+                    "ERROR",
+                )
+            self._shutdown.set()
             return None
 
         fetch_depth = getattr(self._binance_client, "fetch_bbo_prices_quanities", None)
@@ -489,21 +500,46 @@ class BinanceLighterArb:
         if lighter_bid is None or lighter_ask is None:
             return None
 
-        max_size = min(self.config.max_order_size, max(bid_qty, ask_qty))
+        max_size = min(self.config.max_order_size, bid_qty, ask_qty)
         if max_size < self.config.min_order_size:
             return None
 
-        open_spread = lighter_bid - ask
-        if open_spread >= self.config.open_spread_threshold:
-            return "open_long", max_size
+        lighter_bn_spread = bid - lighter_ask
+        bn_lighter_spread = lighter_bid - ask
+        
+        open_spread = bn_lighter_spread
+        close_spread = lighter_bn_spread
+        if binance_pos < Decimal("0") and lighter_pos > Decimal("0"):
+            open_spread = lighter_bn_spread
+            close_spread = bn_lighter_spread
 
-        close_spread = bid - lighter_ask
-        if close_spread >= self.config.close_spread_threshold:
-            return "close_long", max_size
+        if self.logger:
+            now = time.time()
+            if self.last_log_time == 0 or now - self.last_log_time >= 60:
+                self.logger.log(
+                    f"Spreads bn→lighter={bn_lighter_spread:.4f}, lighter→bn={lighter_bn_spread:.4f} | "
+                    f"Positions binance={binance_pos:.4f}, lighter={lighter_pos:.4f} | "
+                    f"Mismatch={mismatch:.4f}",
+                    "INFO",
+                )
+                self.last_log_time = now
+
+        closing_position = min(abs_leg1, abs_leg2)
+        min_close_threshold = self.config.close_spread_threshold
+        if closing_position >= self.config.min_order_size and close_spread >= min_close_threshold:
+            close_size = min(max_size, closing_position)
+            return "close_long", close_size, close_spread
+
+        # If position exceeds cap, only consider closing opportunities
+        if self.config.max_position_size > 0 and max(abs_leg1, abs_leg2) >= self.config.max_position_size:
+            return None
+
+        if open_spread >= self.config.open_spread_threshold:
+            return "open_long", max_size, open_spread
 
         return None
 
-    async def _execute_cycle(self, direction: str, size: Decimal) -> None:
+    async def _execute_cycle(self, direction: str, size: Decimal, spread: Decimal) -> None:
         """
         Execute one arbitrage cycle.
 
@@ -557,6 +593,23 @@ class BinanceLighterArb:
         fill = await self._await_lighter_fill()
         if fill is None and self.logger:
             self.logger.log("Lighter hedge timeout", "ERROR")
+
+        # Post-trade logging and mismatch check
+        if self.logger:
+            self.logger.log(
+                f"Executed {direction} size={filled_size} (spread={spread:.4f})", "INFO"
+            )
+
+        binance_pos, lighter_pos = await self._get_current_positions()
+        mismatch = abs(abs(binance_pos) - abs(lighter_pos))
+        mismatch_limit = self.config.max_order_size
+        if mismatch_limit > 0 and mismatch >= mismatch_limit:
+            if self.logger:
+                self.logger.log(
+                    f"Post-trade mismatch {mismatch} exceeds max_order_size {mismatch_limit}",
+                    "ERROR",
+                )
+            self._shutdown.set()
 
     async def _place_lighter_order(
         self,
@@ -643,9 +696,11 @@ class BinanceLighterArb:
         try:
             while not self._shutdown.is_set():
                 opportunity = await self._compute_opportunity()
-                self.logger.log(f"opportunity {opportunity}")
-                # if opportunity:
-                #     await self._execute_cycle(*opportunity)
+                if opportunity:
+                    direction, size, spread = opportunity
+                    await self._execute_cycle(direction, size, spread)
+                    if self._shutdown.is_set():
+                        break
                 await asyncio.sleep(self.config.loop_interval)
         finally:
             await self.shutdown()
