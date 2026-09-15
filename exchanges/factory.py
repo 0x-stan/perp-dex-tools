@@ -19,6 +19,8 @@ class ExchangeFactory:
         'extended': 'exchanges.extended.ExtendedClient',
         'apex': 'exchanges.apex.ApexClient',
         'nado': 'exchanges.nado.NadoClient',
+        'ethereal': 'exchanges.ethereal.EtherealClient',
+        'standx': 'exchanges.standx.StandXClient',
     }
 
     @classmethod

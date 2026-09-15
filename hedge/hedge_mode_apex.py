@@ -19,6 +19,7 @@ from exchanges.apex import ApexClient
 import websockets
 from datetime import datetime
 import pytz
+from helpers.lighter_ws import build_lighter_ws_url, lighter_ws_connect_kwargs
 
 
 class Config:
@@ -339,7 +340,7 @@ class HedgeBot:
 
     async def handle_lighter_ws(self):
         """Handle Lighter WebSocket connection and messages."""
-        url = "wss://mainnet.zklighter.elliot.ai/stream"
+        url = build_lighter_ws_url()
         cleanup_counter = 0
 
         while not self.stop_flag:
@@ -348,7 +349,7 @@ class HedgeBot:
                 # Reset order book state before connecting
                 await self.reset_lighter_order_book()
 
-                async with websockets.connect(url) as ws:
+                async with websockets.connect(url, **lighter_ws_connect_kwargs()) as ws:
                     # Subscribe to order book updates
                     await ws.send(json.dumps({"type": "subscribe", "channel": f"order_book/{self.lighter_market_index}"}))
 
@@ -357,9 +358,7 @@ class HedgeBot:
 
                     # Get auth token for the subscription
                     try:
-                        # Set auth token to expire in 10 minutes
-                        ten_minutes_deadline = int(time.time() + 10 * 60)
-                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(ten_minutes_deadline)
+                        auth_token, err = self.lighter_client.create_auth_token_with_expiry(api_key_index=self.api_key_index)
                         if err is not None:
                             self.logger.warning(f"⚠️ Failed to create auth token for account orders subscription: {err}")
                         else:
@@ -476,8 +475,11 @@ class HedgeBot:
 
                         except asyncio.TimeoutError:
                             timeout_count += 1
-                            if timeout_count % 3 == 0:
-                                self.logger.warning(f"⏰ No message from Lighter websocket for {timeout_count} seconds")
+                            if timeout_count % 120 == 0:
+                                self.logger.warning(
+                                    f"⏰ No message from Lighter websocket for {timeout_count} seconds "
+                                    f"(can be normal on quiet markets)"
+                                )
                             continue
                         except websockets.exceptions.ConnectionClosed as e:
                             self.logger.warning(f"⚠️ Lighter websocket connection closed: {e}")
@@ -509,9 +511,8 @@ class HedgeBot:
 
             self.lighter_client = SignerClient(
                 url=self.lighter_base_url,
-                private_key=api_key_private_key,
                 account_index=self.account_index,
-                api_key_index=self.api_key_index,
+                api_private_keys={self.api_key_index: api_key_private_key}
             )
 
             # Check client
@@ -759,7 +760,7 @@ class HedgeBot:
         try:
             client_order_index = int(time.time() * 1000)
             # Sign the order transaction
-            tx_info, error = self.lighter_client.sign_create_order(
+            tx, tx_hash, error = await self.lighter_client.create_order(
                 market_index=self.lighter_market_index,
                 client_order_index=client_order_index,
                 base_amount=int(quantity * self.base_amount_multiplier),
@@ -771,13 +772,7 @@ class HedgeBot:
                 trigger_price=0,
             )
             if error is not None:
-                raise Exception(f"Sign error: {error}")
-
-            # Prepare the form data
-            tx_hash = await self.lighter_client.send_tx(
-                tx_type=self.lighter_client.TX_TYPE_CREATE_ORDER,
-                tx_info=tx_info
-            )
+                raise Exception(f"Error placing Lighter order: {error}")
 
             self.logger.info(f"[{client_order_index}] [{order_type}] [Lighter] [OPEN]: {quantity}")
 
